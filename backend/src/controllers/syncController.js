@@ -199,12 +199,28 @@ export const uploadInvoices = async (req, res) => {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      let processed = 0, created = 0, updated = 0;
+      let processed = 0, created = 0, updated = 0, clientsCreated = 0;
 
       for (const row of parsed.data) {
         const inv = mapInvoiceRow(row, headersMap);
         if (!inv.mks_invoice_number || !inv.client_mks_id) continue;
         processed++;
+
+        // Verificar si el cliente existe, si no, crearlo
+        const [existingClient] = await connection.query(
+          'SELECT mks_id FROM external_clients WHERE mks_id = ?',
+          [inv.client_mks_id]
+        );
+        
+        if (existingClient.length === 0) {
+          // Cliente no existe, crear uno placeholder
+          await connection.query(
+            'INSERT INTO external_clients (mks_id, name) VALUES (?, ?)',
+            [inv.client_mks_id, `Cliente MKS ${inv.client_mks_id}`]
+          );
+          clientsCreated++;
+          console.log(`  ✓ Cliente ${inv.client_mks_id} creado automáticamente`);
+        }
 
         // Upsert into external_invoices by mks_invoice_number (assume unique)
         // INSERT/UPDATE sin our_transaction_id
@@ -237,7 +253,7 @@ export const uploadInvoices = async (req, res) => {
       }
 
       await connection.commit();
-      return res.json({ success: true, processed, created, updated });
+      return res.json({ success: true, processed, created, updated, clientsCreated });
     } catch (err) {
       await connection.rollback();
       throw err;

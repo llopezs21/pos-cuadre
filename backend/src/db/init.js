@@ -27,6 +27,285 @@ async function waitForDatabase() {
 }
 
 /**
+ * Agrega columnas faltantes a tablas existentes
+ */
+async function addMissingColumns() {
+    const connection = await pool.getConnection();
+    
+    try {
+        console.log('🔧 Verificando y agregando columnas faltantes...');
+
+        // Helper: verifica si una columna existe
+        const columnExists = async (table, column) => {
+            const [rows] = await connection.query(
+                `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+                 WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+                [process.env.DB_NAME, table, column]
+            );
+            return rows.length > 0;
+        };
+
+        // ===== external_clients =====
+        if (!await columnExists('external_clients', 'id_number')) {
+            await connection.query(
+                `ALTER TABLE external_clients ADD COLUMN id_number VARCHAR(100) DEFAULT NULL COMMENT 'Cédula o número de identificación' AFTER name`
+            );
+            console.log('  + Columna id_number agregada a external_clients');
+        }
+        
+        if (!await columnExists('external_clients', 'phone')) {
+            await connection.query(
+                `ALTER TABLE external_clients ADD COLUMN phone VARCHAR(50) DEFAULT NULL AFTER id_number`
+            );
+            console.log('  + Columna phone agregada a external_clients');
+        }
+        
+        if (!await columnExists('external_clients', 'email')) {
+            await connection.query(
+                `ALTER TABLE external_clients ADD COLUMN email VARCHAR(255) DEFAULT NULL AFTER phone`
+            );
+            console.log('  + Columna email agregada a external_clients');
+        }
+
+        // ===== external_invoices =====
+        if (!await columnExists('external_invoices', 'mks_invoice_number')) {
+            await connection.query(
+                `ALTER TABLE external_invoices ADD COLUMN mks_invoice_number INT NOT NULL UNIQUE COMMENT 'Número de factura del sistema MKS' AFTER id`
+            );
+            console.log('  + Columna mks_invoice_number agregada a external_invoices');
+        }
+        
+        if (!await columnExists('external_invoices', 'issue_date')) {
+            await connection.query(
+                `ALTER TABLE external_invoices ADD COLUMN issue_date DATE DEFAULT NULL COMMENT 'Fecha de emisión' AFTER amount`
+            );
+            console.log('  + Columna issue_date agregada a external_invoices');
+        }
+        
+        if (!await columnExists('external_invoices', 'due_date')) {
+            await connection.query(
+                `ALTER TABLE external_invoices ADD COLUMN due_date DATE DEFAULT NULL COMMENT 'Fecha de vencimiento' AFTER issue_date`
+            );
+            console.log('  + Columna due_date agregada a external_invoices');
+        }
+        
+        if (!await columnExists('external_invoices', 'payment_method_external')) {
+            await connection.query(
+                `ALTER TABLE external_invoices ADD COLUMN payment_method_external VARCHAR(100) DEFAULT NULL COMMENT 'Método de pago del sistema externo' AFTER status`
+            );
+            console.log('  + Columna payment_method_external agregada a external_invoices');
+        }
+
+        // Verificar y actualizar ENUM de status si es necesario
+        const [statusInfo] = await connection.query(
+            `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'external_invoices' AND COLUMN_NAME = 'status'`,
+            [process.env.DB_NAME]
+        );
+        if (statusInfo.length > 0 && !statusInfo[0].COLUMN_TYPE.includes('VENCIDO')) {
+            await connection.query(
+                `ALTER TABLE external_invoices MODIFY COLUMN status 
+                 ENUM('NO PAGADO', 'PAGADO', 'VENCIDO', 'ANULADO') DEFAULT 'NO PAGADO'`
+            );
+            console.log('  + ENUM status actualizado en external_invoices (agregado VENCIDO)');
+        }
+
+        // ===== payment_method_configs =====
+        if (!await columnExists('payment_method_configs', 'username')) {
+            await connection.query(
+                `ALTER TABLE payment_method_configs ADD COLUMN username VARCHAR(128) DEFAULT NULL COMMENT 'Responsable del método de pago' AFTER user_id`
+            );
+            console.log('  + Columna username agregada a payment_method_configs');
+        }
+        
+        if (!await columnExists('payment_method_configs', 'account_number')) {
+            await connection.query(
+                `ALTER TABLE payment_method_configs ADD COLUMN account_number VARCHAR(128) DEFAULT NULL COMMENT 'Número de cuenta' AFTER username`
+            );
+            console.log('  + Columna account_number agregada a payment_method_configs');
+        }
+        
+        if (!await columnExists('payment_method_configs', 'commission_percentage')) {
+            await connection.query(
+                `ALTER TABLE payment_method_configs ADD COLUMN commission_percentage DECIMAL(10, 4) DEFAULT NULL COMMENT 'Comisión en porcentaje' AFTER iva_exempt`
+            );
+            console.log('  + Columna commission_percentage agregada a payment_method_configs');
+        }
+        
+        if (!await columnExists('payment_method_configs', 'commission_fixed')) {
+            await connection.query(
+                `ALTER TABLE payment_method_configs ADD COLUMN commission_fixed DECIMAL(10, 2) DEFAULT NULL COMMENT 'Comisión fija' AFTER commission_percentage`
+            );
+            console.log('  + Columna commission_fixed agregada a payment_method_configs');
+        }
+        
+        if (!await columnExists('payment_method_configs', 'is_default')) {
+            await connection.query(
+                `ALTER TABLE payment_method_configs ADD COLUMN is_default BOOLEAN DEFAULT FALSE AFTER commission_fixed`
+            );
+            console.log('  + Columna is_default agregada a payment_method_configs');
+        }
+
+        console.log('✅ Verificación de columnas completada.');
+
+        // ===== CORRECCIÓN CRÍTICA: Cambiar id de VARCHAR a INT AUTO_INCREMENT =====
+        console.log('🔧 Verificando tipos de columna id en tablas críticas...');
+
+        // Verificar external_invoices.id
+        const [invoiceIdType] = await connection.query(
+            `SELECT DATA_TYPE, COLUMN_TYPE, EXTRA FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'external_invoices' AND COLUMN_NAME = 'id'`,
+            [process.env.DB_NAME]
+        );
+        
+        if (invoiceIdType.length > 0 && invoiceIdType[0].DATA_TYPE === 'varchar') {
+            console.log('  ⚠️  external_invoices.id es VARCHAR, cambiando a INT AUTO_INCREMENT...');
+            
+            // Desactivar temporalmente checks de foreign keys
+            await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+            
+            // Verificar si hay datos en la tabla
+            const [countResult] = await connection.query(
+                `SELECT COUNT(*) as count FROM external_invoices`
+            );
+            const hasData = countResult[0].count > 0;
+            
+            if (hasData) {
+                console.log(`    ⚠️  Tabla tiene ${countResult[0].count} registros. Truncando para cambiar tipo...`);
+                await connection.query(`TRUNCATE TABLE external_invoices`);
+                console.log('    - Tabla truncada');
+            }
+            
+            // Eliminar PRIMARY KEY existente
+            await connection.query(`ALTER TABLE external_invoices DROP PRIMARY KEY`);
+            console.log('    - PRIMARY KEY eliminada');
+            
+            // Cambiar el tipo de columna a INT AUTO_INCREMENT
+            await connection.query(
+                `ALTER TABLE external_invoices 
+                 MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT PRIMARY KEY`
+            );
+            console.log('  ✓ external_invoices.id cambiada a INT AUTO_INCREMENT PRIMARY KEY');
+            
+            // Reactivar checks de foreign keys
+            await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        
+        console.log('✅ Verificación de tipos de columna completada.');
+        
+        // Verificar abonos.applied_to_invoice_id
+        const [abonosRefType] = await connection.query(
+            `SELECT DATA_TYPE, COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'abonos' AND COLUMN_NAME = 'applied_to_invoice_id'`,
+            [process.env.DB_NAME]
+        );
+        
+        if (abonosRefType.length > 0 && abonosRefType[0].DATA_TYPE === 'varchar') {
+            console.log('  ⚠️  abonos.applied_to_invoice_id es VARCHAR, cambiando a INT...');
+            
+            await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+            
+            // Eliminar FK si existe
+            try {
+                await connection.query(
+                    `ALTER TABLE abonos DROP FOREIGN KEY abonos_ibfk_3`
+                );
+                console.log('    - FK abonos_ibfk_3 eliminada temporalmente');
+            } catch (err) {
+                // FK puede no existir, ignorar error
+            }
+            
+            // Cambiar tipo de columna
+            await connection.query(
+                `ALTER TABLE abonos 
+                 MODIFY COLUMN applied_to_invoice_id INT DEFAULT NULL`
+            );
+            console.log('    - Columna applied_to_invoice_id modificada a INT');
+            
+            // Recrear FK
+            await connection.query(
+                `ALTER TABLE abonos 
+                 ADD CONSTRAINT abonos_ibfk_3 
+                 FOREIGN KEY (applied_to_invoice_id) 
+                 REFERENCES external_invoices(id) ON DELETE SET NULL`
+            );
+            console.log('  ✓ abonos.applied_to_invoice_id cambiada a INT con FK recreada');
+            
+            await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        
+        console.log('✅ Verificación exhaustiva de FKs completada.');
+        
+        // Verificar mks_id y client_mks_id (deben ser INT, no VARCHAR)
+        console.log('🔧 Verificando tipos de columnas mks_id...');
+        
+        const [mksIdType] = await connection.query(
+            `SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'external_clients' AND COLUMN_NAME = 'mks_id'`,
+            [process.env.DB_NAME]
+        );
+        
+        if (mksIdType.length > 0 && mksIdType[0].DATA_TYPE === 'varchar') {
+            console.log('  ⚠️  external_clients.mks_id es VARCHAR, cambiando a INT...');
+            
+            await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+            
+            // Verificar si hay datos
+            const [countClients] = await connection.query(`SELECT COUNT(*) as count FROM external_clients`);
+            if (countClients[0].count > 0) {
+                console.log(`    ⚠️  Tabla external_clients tiene ${countClients[0].count} registros. Truncando...`);
+                await connection.query(`TRUNCATE TABLE external_invoices`);
+                await connection.query(`TRUNCATE TABLE abonos`);
+                await connection.query(`TRUNCATE TABLE external_clients`);
+                console.log('    - Tablas truncadas');
+            }
+            
+            // Eliminar FKs que referencian mks_id
+            console.log('    - Eliminando FKs temporalmente...');
+            try {
+                await connection.query(`ALTER TABLE external_invoices DROP FOREIGN KEY external_invoices_ibfk_1`);
+            } catch (e) { /* FK puede no existir */ }
+            try {
+                await connection.query(`ALTER TABLE abonos DROP FOREIGN KEY abonos_ibfk_1`);
+            } catch (e) { /* FK puede no existir */ }
+            
+            // Cambiar tipos de columnas
+            await connection.query(`ALTER TABLE external_clients MODIFY COLUMN mks_id INT NOT NULL UNIQUE`);
+            console.log('    - external_clients.mks_id cambiada a INT');
+            
+            await connection.query(`ALTER TABLE external_invoices MODIFY COLUMN client_mks_id INT NOT NULL`);
+            console.log('    - external_invoices.client_mks_id cambiada a INT');
+            
+            await connection.query(`ALTER TABLE abonos MODIFY COLUMN client_mks_id INT NOT NULL`);
+            console.log('    - abonos.client_mks_id cambiada a INT');
+            
+            // Recrear FKs
+            await connection.query(`
+                ALTER TABLE external_invoices 
+                ADD CONSTRAINT external_invoices_ibfk_1 
+                FOREIGN KEY (client_mks_id) REFERENCES external_clients(mks_id) ON DELETE CASCADE
+            `);
+            await connection.query(`
+                ALTER TABLE abonos 
+                ADD CONSTRAINT abonos_ibfk_1 
+                FOREIGN KEY (client_mks_id) REFERENCES external_clients(mks_id) ON DELETE CASCADE
+            `);
+            console.log('  ✓ FKs recreadas correctamente');
+            
+            await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+        }
+        
+        console.log('✅ Verificación de tipos mks_id completada.');
+        
+    } catch (error) {
+        console.error('❌ Error al agregar columnas faltantes:', error);
+        throw error;
+    } finally {
+        connection.release();
+    }
+}
+
+/**
  * Crea las tablas principales del sistema
  */
 async function initializeTables() {
@@ -80,11 +359,15 @@ async function initializeTables() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS external_clients (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                mks_id VARCHAR(50) NOT NULL UNIQUE,
+                mks_id INT NOT NULL UNIQUE,
                 name VARCHAR(255) NOT NULL,
+                id_number VARCHAR(100) DEFAULT NULL COMMENT 'Cédula o número de identificación',
+                phone VARCHAR(50) DEFAULT NULL,
+                email VARCHAR(255) DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_mks_id (mks_id)
+                INDEX idx_mks_id (mks_id),
+                INDEX idx_id_number (id_number)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
         console.log('  ✓ Tabla external_clients creada/verificada.');
@@ -92,14 +375,19 @@ async function initializeTables() {
         // ===== TABLA: external_invoices =====
         await connection.query(`
             CREATE TABLE IF NOT EXISTS external_invoices (
-                id VARCHAR(100) PRIMARY KEY,
-                client_mks_id VARCHAR(50) NOT NULL,
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                mks_invoice_number INT NOT NULL UNIQUE COMMENT 'Número de factura del sistema MKS',
+                client_mks_id INT NOT NULL,
                 amount DECIMAL(15, 2) NOT NULL,
-                status ENUM('NO PAGADO', 'PAGADO') DEFAULT 'NO PAGADO',
+                issue_date DATE DEFAULT NULL COMMENT 'Fecha de emisión',
+                due_date DATE DEFAULT NULL COMMENT 'Fecha de vencimiento',
+                status ENUM('NO PAGADO', 'PAGADO', 'VENCIDO', 'ANULADO') DEFAULT 'NO PAGADO',
+                payment_method_external VARCHAR(100) DEFAULT NULL COMMENT 'Método de pago del sistema externo',
                 our_transaction_id VARCHAR(100) DEFAULT NULL,
                 vencido BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_mks_invoice_number (mks_invoice_number),
                 INDEX idx_client_mks_id (client_mks_id),
                 INDEX idx_status (status),
                 INDEX idx_our_transaction_id (our_transaction_id),
@@ -172,7 +460,7 @@ async function initializeTables() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS abonos (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                client_mks_id VARCHAR(50) NOT NULL,
+                client_mks_id INT NOT NULL,
                 amount DECIMAL(15, 2) NOT NULL,
                 currency ENUM('USD', 'VES') DEFAULT 'USD',
                 bcv_rate DECIMAL(10, 4) DEFAULT NULL,
@@ -180,7 +468,7 @@ async function initializeTables() {
                 status ENUM('disponible', 'aplicado') DEFAULT 'disponible',
                 created_at_session_id INT DEFAULT NULL,
                 applied_at_session_id INT DEFAULT NULL,
-                applied_to_invoice_id VARCHAR(100) DEFAULT NULL,
+                applied_to_invoice_id INT DEFAULT NULL,
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_client_mks_id (client_mks_id),
@@ -200,13 +488,19 @@ async function initializeTables() {
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 payment_method_id INT UNSIGNED NOT NULL,
                 user_id INT DEFAULT NULL,
+                username VARCHAR(128) DEFAULT NULL COMMENT 'Responsable del método de pago',
+                account_number VARCHAR(128) DEFAULT NULL COMMENT 'Número de cuenta',
                 iva_exempt BOOLEAN DEFAULT FALSE,
                 apply_iva_by_default BOOLEAN DEFAULT FALSE,
+                commission_percentage DECIMAL(10, 4) DEFAULT NULL COMMENT 'Comisión en porcentaje',
+                commission_fixed DECIMAL(10, 2) DEFAULT NULL COMMENT 'Comisión fija',
+                is_default BOOLEAN DEFAULT FALSE,
                 notes TEXT DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_payment_method_id (payment_method_id),
                 INDEX idx_user_id (user_id),
+                UNIQUE KEY unique_payment_method_user (payment_method_id, user_id),
                 FOREIGN KEY (payment_method_id) REFERENCES payment_methods(id) ON DELETE CASCADE,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -322,6 +616,10 @@ export async function initializeDatabase() {
         console.log('🔵 [DEBUG] Paso 2: Llamando a initializeTables()...');
         // Paso 2: Crear/verificar tablas
         await initializeTables();
+
+        console.log('🔵 [DEBUG] Paso 2.5: Llamando a addMissingColumns()...');
+        // Paso 2.5: Agregar columnas faltantes a tablas existentes
+        await addMissingColumns();
 
         console.log('🔵 [DEBUG] Paso 3: Llamando a seedInitialData()...');
         // Paso 3: Insertar datos iniciales
