@@ -12,16 +12,21 @@ import {
   TableRow,
   TableSortLabel,
   Divider,
-  Stack
+  Stack,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import PaidIcon from '@mui/icons-material/Paid';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import { useAppStore } from '../store';
-import type { FullTransaction } from '../services/api';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import IconButton from '@mui/material/IconButton';
+import { useAppStore } from '../store';
+import { useTransactionSummary } from '../hooks/useTransactionSummary';
+import type { FullTransaction } from '../services/api';
 
 interface TransactionsTableProps {
   transactions: FullTransaction[];
@@ -35,6 +40,7 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
   const [order, setOrder] = useState<Order>('desc');
   const [orderBy, setOrderBy] = useState<SortKey>('createdAt');
   const [search, setSearch] = useState('');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('all');
   const { removeTransaction, openEditModal } = useAppStore();
 
   const handleSort = (key: SortKey) => {
@@ -53,10 +59,17 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
   };
 
   const filteredTransactions = useMemo(() => {
-    return transactions.filter(tx =>
-      tx.clientName.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [transactions, search]);
+    return transactions.filter(tx => {
+      // Filtro 1: Por nombre de cliente
+      const matchesSearch = tx.clientName.toLowerCase().includes(search.toLowerCase());
+      
+      // Filtro 2: Por método de pago
+      const matchesPaymentMethod = selectedPaymentMethod === 'all' 
+        || (Array.isArray(tx.payments) && tx.payments.some(p => p.method === selectedPaymentMethod));
+      
+      return matchesSearch && matchesPaymentMethod;
+    });
+  }, [transactions, search, selectedPaymentMethod]);
 
   const sortedTransactions = useMemo(() => {
     return [...filteredTransactions].sort((a, b) => {
@@ -93,30 +106,18 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
     });
   }, [filteredTransactions, order, orderBy]);
 
-  // --- TOTALES ---
-  const totalTransacciones = sortedTransactions.length;
-  const totalMontoBase = sortedTransactions.reduce((sum, tx) => sum + Number(tx.invoiceBaseUSD), 0);
-
-  // NUEVOS TOTALES POR TIPO DE CAMBIO
-  const totalCashUSD = sortedTransactions.reduce((sum, tx) => {
-    const payment = tx.payments.find(p => p.method === 'cash_usd');
-    return sum + (payment ? Number(payment.amount) : 0);
-  }, 0);
-
-  const totalCashVES = sortedTransactions.reduce((sum, tx) => {
-    const payment = tx.payments.find(p => p.method === 'cash_ves');
-    return sum + (payment ? Number(payment.amount) : 0);
-  }, 0);
-
-  const totalPosBanesco = sortedTransactions.reduce((sum, tx) => {
-    const payment = tx.payments.find(p => p.method === 'pos_banesco');
-    return sum + (payment ? Number(payment.amount) : 0);
-  }, 0);
-
-  const totalPosMiBanco = sortedTransactions.reduce((sum, tx) => {
-    const payment = tx.payments.find(p => p.method === 'pos_mibanco');
-    return sum + (payment ? Number(payment.amount) : 0);
-  }, 0);
+  // --- TOTALES: Delegados al hook personalizado ---
+  const summary = useTransactionSummary(sortedTransactions);
+  
+  // Destructurar para mantener compatibilidad con el código de renderizado
+  const {
+    totalTransacciones,
+    totalMontoBase,
+    totalCashUSD,
+    totalCashVES,
+    totalPosBanesco,
+    totalPosMiBanco
+  } = summary;
 
   // Abreviaciones y/o iconos para métodos de pago
   const paymentMethodInfo: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -151,6 +152,26 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
           sx={{ bgcolor: '#1a1d23', borderRadius: 2, input: { color: '#fff' } }}
         />
       </Box>
+
+      {/* Filtro por Método de Pago */}
+      <Box sx={{ mb: 2 }}>
+        <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#1a1d23', borderRadius: 1 }}>
+          <InputLabel sx={{ color: '#90caf9' }}>Filtrar por Método</InputLabel>
+          <Select
+            value={selectedPaymentMethod}
+            onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+            label="Filtrar por Método"
+            sx={{ color: '#fff' }}
+          >
+            <MenuItem value="all">Todos los métodos</MenuItem>
+            <MenuItem value="cash_usd">💵 Efectivo USD</MenuItem>
+            <MenuItem value="cash_ves">💰 Efectivo VES</MenuItem>
+            <MenuItem value="pos_banesco">🏦 POS Banesco</MenuItem>
+            <MenuItem value="pos_mibanco">🏦 POS Mi Banco</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
       <TableContainer sx={{ width: '100%', borderRadius: 2 }}>
         <Table stickyHeader size="small" sx={{ minWidth: 800 }}>
           <TableHead>

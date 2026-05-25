@@ -5,6 +5,7 @@ import { SummaryView } from '../components/SummaryView';
 import { TransactionsTable } from '../components/TransactionsTable';
 import { StartSession } from '../components/StartSession';
 import { CloseSessionModal } from '../components/CloseSessionModal';
+import { Sidebar } from '../components/sidebar/Sidebar';
 import { Container, Paper, Stack, Typography, AppBar, Toolbar, Button, Box, ToggleButtonGroup, ToggleButton, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getAllSessions, getTransactionsBySessionId } from '../services/api';
@@ -71,7 +72,8 @@ export const DashboardPage = () => {
 
       (tx.payments || []).forEach((p: any) => {
         const amount = Number(p.amount) || 0;
-        const method = (p.payment_method_code || p.method || '').toString();
+        // CORRECCIÓN: normalizar a lowercase para comparación
+        const method = (p.payment_method_code || p.method || '').toString().toLowerCase();
 
         // Mapear el código del pago a la clave correcta
         switch (method) {
@@ -186,150 +188,146 @@ export const DashboardPage = () => {
     return totals;
   }, [filteredTransactions]);
 
-  // UI
+  // UI - FASE 3: Nuevo diseño con Sidebar
   return (
     <>
-      <AppBar position="static" color="transparent" elevation={0} sx={{ mb: 2 }}>
-        <Toolbar sx={{ justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6">Dashboard</Typography>
-            {/* FASE 2: Renderizado seguro con estado de carga */}
-            {isAuthLoading ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <CircularProgress size={20} color="inherit" />
-                <Typography variant="body2" color="text.secondary">
-                  Verificando usuario...
-                </Typography>
-              </Box>
-            ) : (
-              <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                Usuario: {user?.username || user?.name || 'Usuario Anónimo'}
-              </Typography>
-            )}
-
-            {/* --- LÍNEA AÑADIDA: indicador de sesión seleccionada --- */}
-            {selectedSessionId && (
-              <Typography variant="body2" sx={{ color: 'secondary.light', fontWeight: 600, border: '1px solid', borderColor: 'secondary.dark', px: 1, borderRadius: 1 }}>
-                Viendo Sesión: #{selectedSessionId}
-              </Typography>
-            )}
-            {/* --- FIN DE LÍNEA AÑADIDA --- */}
-
-          </Box>
-          <Box>
-            {user?.role === 'admin' && (
-              <>
-                <Button component={RouterLink} to="/admin/sessions" color="inherit" sx={{ mr: 2 }}>
-                  Ver Sesiones
-                </Button>
-                <Button component={RouterLink} to="/admin/config" color="inherit" sx={{ mr: 2 }}>
-                  Configurar Pagos
-                </Button>
-                <Button component={RouterLink} to="/admin/business-rules" color="inherit" sx={{ mr: 2 }}>
-                  Reglas de Negocio
-                </Button>
-                <Button component={RouterLink} to="/admin/sync" color="inherit" sx={{ mr: 2 }}>
-                  Sincronizar
-                </Button>
-              </>
-            )}
-            <Button color="secondary" variant="contained" onClick={() => setCloseModalOpen(true)} sx={{ mr: 2 }}>
-              Cerrar Caja
-            </Button>
-            <Button color="inherit" onClick={logout}>Cerrar Sesión</Button>
-          </Box>
-        </Toolbar>
-      </AppBar>
-
       {!isSessionOpen ? (
         <Container maxWidth="sm" sx={{ mt: 8 }}>
           <StartSession />
         </Container>
       ) : (
-        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-          <Typography variant="h3" component="h1" align="center" gutterBottom>
-            Aplicación de Cuadre de Caja
-          </Typography>
+        <Box sx={{ display: 'table', width: '100%', minHeight: '100vh', tableLayout: 'fixed' }}>
+          {/* PANEL IZQUIERDO: SIDEBAR ESTÁTICO */}
+          <Box sx={{ display: 'table-cell', width: '320px', verticalAlign: 'top' }}>
+            <Sidebar 
+              summary={summary} 
+              onCloseSession={() => setCloseModalOpen(true)}
+            />
+          </Box>
 
-          {/* Admin: selector de sesión */}
-          {user?.role === 'admin' && (
-            <Paper sx={{ p: 2, mb: 3 }}>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Box sx={{ flex: '1 1 100%', maxWidth: { md: '50%' } }}>
-                  <FormControl fullWidth>
-                    <InputLabel>Ver Sesión de Usuario</InputLabel>
-                    <Select
-                      value={selectedSessionId || ''}
-                      label="Ver Sesión de Usuario"
-                      onChange={(e) => setSelectedSessionId(String(e.target.value))}
-                    >
-                      {adminSessionList.map((s: any) => (
-                        <MenuItem key={s.id} value={String(s.id)}>
-                          {s.username || 'Usuario'} (Sesión #{s.id}) - {new Date(s.closedAt || s.createdAt || Date.now()).toLocaleString()}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+          {/* PANEL DERECHO: CONTENIDO OPERATIVO FLUIDO */}
+          <Box sx={{ display: 'table-cell', verticalAlign: 'top', backgroundColor: '#0f172a' }}>
+            {/* Top Bar con navegación de admin */}
+            <AppBar position="static" color="transparent" elevation={0} sx={{ backgroundColor: '#1e293b', borderBottom: '1px solid #334155' }}>
+              <Toolbar sx={{ justifyContent: 'space-between' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Typography variant="h6">Dashboard</Typography>
+                  {selectedSessionId && (
+                    <Typography variant="body2" sx={{ color: 'secondary.light', fontWeight: 600, border: '1px solid', borderColor: 'secondary.dark', px: 1, borderRadius: 1 }}>
+                      Viendo Sesión: #{selectedSessionId}
+                    </Typography>
+                  )}
                 </Box>
+                <Box>
+                  {user?.role === 'admin' && (
+                    <>
+                      <Button component={RouterLink} to="/admin/sessions" color="inherit" sx={{ mr: 1 }}>
+                        Ver Sesiones
+                      </Button>
+                      <Button component={RouterLink} to="/admin/config" color="inherit" sx={{ mr: 1 }}>
+                        Configurar Pagos
+                      </Button>
+                      <Button component={RouterLink} to="/admin/business-rules" color="inherit" sx={{ mr: 1 }}>
+                        Reglas de Negocio
+                      </Button>
+                      <Button component={RouterLink} to="/admin/sync" color="inherit">
+                        Sincronizar
+                      </Button>
+                    </>
+                  )}
+                </Box>
+              </Toolbar>
+            </AppBar>
 
-                <Box sx={{ flex: '1 1 100%', maxWidth: { md: '50%' }, display: 'flex', alignItems: 'center' }}>
-                  {loading ? <CircularProgress size={24} /> : <Typography>Sesión seleccionada: #{selectedSessionId || '—'}</Typography>}
-                </Box>
+            {/* Contenido Principal */}
+            <Box sx={{ p: 4 }}>
+              <Box sx={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <Typography variant="h3" component="h1" align="center" gutterBottom sx={{ mb: 3, color: '#f1f5f9' }}>
+                  Aplicación de Cuadre de Caja
+                </Typography>
+
+                {/* Admin: selector de sesión */}
+                {user?.role === 'admin' && (
+                  <Paper sx={{ p: 2, mb: 3 }}>
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Box sx={{ flex: '1 1 100%', maxWidth: { md: '50%' } }}>
+                        <FormControl fullWidth>
+                          <InputLabel>Ver Sesión de Usuario</InputLabel>
+                          <Select
+                            value={selectedSessionId || ''}
+                            label="Ver Sesión de Usuario"
+                            onChange={(e) => setSelectedSessionId(String(e.target.value))}
+                          >
+                            {adminSessionList.map((s: any) => (
+                              <MenuItem key={s.id} value={String(s.id)}>
+                                {s.username || 'Usuario'} (Sesión #{s.id}) - {new Date(s.closedAt || s.createdAt || Date.now()).toLocaleString()}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+
+                      <Box sx={{ flex: '1 1 100%', maxWidth: { md: '50%' }, display: 'flex', alignItems: 'center' }}>
+                        {loading ? <CircularProgress size={24} /> : <Typography>Sesión seleccionada: #{selectedSessionId || '—'}</Typography>}
+                      </Box>
+                    </Box>
+                  </Paper>
+                )}
+
+                <AppBar position="static" color="default" sx={{ mb: 3 }}>
+                  <Toolbar>
+                    <Button color={page === 'dashboard' ? 'primary' : 'inherit'} onClick={() => setPage('dashboard')}>
+                      Resumen y Registro
+                    </Button>
+                    <Button color={page === 'transactions' ? 'primary' : 'inherit'} onClick={() => setPage('transactions')}>
+                      Ver Transacciones
+                    </Button>
+                  </Toolbar>
+                </AppBar>
+
+                {page === 'dashboard' && (
+                  <Stack spacing={3}>
+                    <Paper sx={{ p: 3 }}>
+                      <TransactionForm />
+                    </Paper>
+
+                    {loading && <Typography>Cargando...</Typography>}
+
+                    {!loading && summary && (
+                      <Paper sx={{ p: 3 }}>
+                        <SummaryView summary={summary} />
+                      </Paper>
+                    )}
+                  </Stack>
+                )}
+
+                {page === 'transactions' && (
+                  <Stack spacing={3}>
+                    <Paper sx={{ p: 2 }}>
+                      <Typography variant="h6" gutterBottom>Filtrar por Método de Pago</Typography>
+                      <ToggleButtonGroup value={paymentMethodFilter} exclusive onChange={(_, v) => v && setPaymentMethodFilter(v)} sx={{ mb: 2 }}>
+                        <ToggleButton value="all">Todos</ToggleButton>
+                        <ToggleButton value="cash_usd">Efectivo USD</ToggleButton>
+                        <ToggleButton value="cash_ves">Efectivo VES</ToggleButton>
+                        <ToggleButton value="pos_banesco">Punto Banesco</ToggleButton>
+                        <ToggleButton value="pos_mibanco">Punto Mi Banco</ToggleButton>
+                      </ToggleButtonGroup>
+
+                      <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
+                        <Typography variant="body1"><strong>USD:</strong> ${filteredTotals.usd.toFixed(2)}</Typography>
+                        <Typography variant="body1"><strong>VES:</strong> {filteredTotals.ves.toFixed(2)}</Typography>
+                        <Typography variant="body1"><strong>Banesco:</strong> {filteredTotals.banesco.toFixed(2)}</Typography>
+                        <Typography variant="body1"><strong>MiBanco:</strong> {filteredTotals.mibanco.toFixed(2)}</Typography>
+                      </Box>
+
+                      <TransactionsTable transactions={filteredTransactions} />
+                    </Paper>
+                  </Stack>
+                )}
               </Box>
-            </Paper>
-          )}
-
-          <AppBar position="static" color="default" sx={{ mb: 3 }}>
-            <Toolbar>
-              <Button color={page === 'dashboard' ? 'primary' : 'inherit'} onClick={() => setPage('dashboard')}>
-                Resumen y Registro
-              </Button>
-              <Button color={page === 'transactions' ? 'primary' : 'inherit'} onClick={() => setPage('transactions')}>
-                Ver Transacciones
-              </Button>
-            </Toolbar>
-          </AppBar>
-
-          {page === 'dashboard' && (
-            <Stack spacing={3}>
-              <Paper sx={{ p: 3 }}>
-                <TransactionForm />
-              </Paper>
-
-              {loading && <Typography>Cargando...</Typography>}
-
-              {!loading && summary && (
-                <Paper sx={{ p: 3 }}>
-                  <SummaryView summary={summary} />
-                </Paper>
-              )}
-            </Stack>
-          )}
-
-          {page === 'transactions' && (
-            <Stack spacing={3}>
-              <Paper sx={{ p: 2 }}>
-                <Typography variant="h6" gutterBottom>Filtrar por Método de Pago</Typography>
-                <ToggleButtonGroup value={paymentMethodFilter} exclusive onChange={(_, v) => v && setPaymentMethodFilter(v)} sx={{ mb: 2 }}>
-                  <ToggleButton value="all">Todos</ToggleButton>
-                  <ToggleButton value="cash_usd">Efectivo USD</ToggleButton>
-                  <ToggleButton value="cash_ves">Efectivo VES</ToggleButton>
-                  <ToggleButton value="pos_banesco">Punto Banesco</ToggleButton>
-                  <ToggleButton value="pos_mibanco">Punto Mi Banco</ToggleButton>
-                </ToggleButtonGroup>
-
-                <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
-                  <Typography variant="body1"><strong>USD:</strong> ${filteredTotals.usd.toFixed(2)}</Typography>
-                  <Typography variant="body1"><strong>VES:</strong> {filteredTotals.ves.toFixed(2)}</Typography>
-                  <Typography variant="body1"><strong>Banesco:</strong> {filteredTotals.banesco.toFixed(2)}</Typography>
-                  <Typography variant="body1"><strong>MiBanco:</strong> {filteredTotals.mibanco.toFixed(2)}</Typography>
-                </Box>
-
-                <TransactionsTable transactions={filteredTransactions} />
-              </Paper>
-            </Stack>
-          )}
-        </Container>
+            </Box>
+          </Box>
+        </Box>
       )}
 
       <CloseSessionModal open={isCloseModalOpen} onClose={() => setCloseModalOpen(false)} summary={summary} />

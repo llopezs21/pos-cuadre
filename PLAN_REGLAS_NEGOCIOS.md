@@ -38,3 +38,13 @@ En InvoicePaymentForm.tsx (y cualquier otro formulario de cobro):
 Leer iva_rate e iva_threshold desde Zustand (useAppStore).
 
 Reemplazar la lógica condicional rígida. El cálculo en tiempo real debe verificar la suma ingresada en el método is_base_currency frente al umbral dinámico, y aplicar el iva_rate dinámico a los métodos triggers_iva si la regla falla.
+
+se aplico este comando en la base de datos para poder aplicar esta actualizacion actualiza el init.js para que sea compatible con el nuevo schema de BD -- 2. Asegurarnos de que los métodos de pago tengan las banderas correctas
+ALTER TABLE payment_methods ADD COLUMN triggers_iva BOOLEAN DEFAULT FALSE;
+ALTER TABLE payment_methods ADD COLUMN is_base_currency BOOLEAN DEFAULT FALSE;
+
+-- Configurar el Efectivo USD como moneda base
+UPDATE payment_methods SET is_base_currency = TRUE WHERE code = 'CASH_USD';
+-- Configurar los demás para que disparen IVA (si no se cumple la regla)
+UPDATE payment_methods SET triggers_iva = TRUE WHERE currency = 'VES';
+

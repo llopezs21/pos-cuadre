@@ -5,6 +5,9 @@ import { Autocomplete, Box, Button, Checkbox, CircularProgress, FormControlLabel
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import toast from 'react-hot-toast';
+import { PaymentMethodSelector } from './payment/PaymentMethodSelector';
+import { CurrencyAmountInput } from './payment/CurrencyAmountInput';
+import { VATCalculationsBadge } from './payment/VATCalculationsBadge';
 
 interface PaymentState {
   method: string; // ahora guarda payment_method_code (p.ej. 'CASH_USD', 'POS_BANESCO')
