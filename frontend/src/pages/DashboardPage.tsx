@@ -12,11 +12,13 @@ import { getAllSessions, getTransactionsBySessionId } from '../services/api';
 export const DashboardPage = () => {
   // Store: usar selectores individuales para evitar re-render infinito
   const user = useAppStore(state => state.user);
+  const isAuthLoading = useAppStore(state => state.isAuthLoading); // FASE 2: Estado de carga del usuario
   // Selector: usar únicamente currentSession para evitar ambigüedad
   const currentSession = useAppStore(state => state.currentSession);
   const getCurrentSession = useAppStore(state => state.getCurrentSession);
   const fetchBcvRate = useAppStore(state => state.fetchBcvRate);
   const fetchPaymentMethods = useAppStore(state => state.fetchPaymentMethods);
+  const fetchCurrentUser = useAppStore(state => state.fetchCurrentUser); // FASE 2: Función para obtener usuario
   const logout = useAppStore(state => state.logout);
   const isSessionOpen = useAppStore(state => state.isSessionOpen);
 
@@ -36,6 +38,8 @@ export const DashboardPage = () => {
 
   // Cargar datos iniciales del store
   useEffect(() => {
+    // FASE 2: Verificar usuario actual desde el backend
+    fetchCurrentUser();
     // Evitar llamadas redundantes: pedir current session solo si no está en el store
     if (!currentSession) getCurrentSession();
     fetchBcvRate();
@@ -186,9 +190,19 @@ export const DashboardPage = () => {
         <Toolbar sx={{ justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography variant="h6">Dashboard</Typography>
-            <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-              Usuario: {user?.username || 'Cargando...'}
-            </Typography>
+            {/* FASE 2: Renderizado seguro con estado de carga */}
+            {isAuthLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={20} color="inherit" />
+                <Typography variant="body2" color="text.secondary">
+                  Verificando usuario...
+                </Typography>
+              </Box>
+            ) : (
+              <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                Usuario: {user?.username || user?.name || 'Usuario Anónimo'}
+              </Typography>
+            )}
 
             {/* --- LÍNEA AÑADIDA: indicador de sesión seleccionada --- */}
             {selectedSessionId && (

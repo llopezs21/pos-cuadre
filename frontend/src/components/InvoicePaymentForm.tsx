@@ -198,34 +198,45 @@ export const InvoicePaymentForm = () => {
 
     const handlePaymentChange = (index: number, field: keyof PaymentState, value: any) => {
         const newPayments = [...payments];
-        const currentPayment = { ...newPayments[index], [field]: value };
+        const currentPayment = { ...newPayments[index] };
 
         if (field === 'method') {
             const newMethodCode = value as string;
             const selectedMethod = (paymentMethods || []).find((m: any) => m.code === newMethodCode);
             const selectedCurrency = selectedMethod?.currency || 'USD';
-            currentPayment.currency = selectedCurrency;
+            
+            // FASE 1: Inyección síncrona y forzada de la tasa por defecto (DEFAULT_BCV_RATE)
+            // Calculamos la tasa inicial de forma explícita ANTES de cualquier otra operación
+            const DEFAULT_BCV_RATE = Number(bcvRate) || 36.5;
+            const rateInicial = selectedCurrency === 'VES' ? DEFAULT_BCV_RATE : 1;
 
             const otherPayments = newPayments.filter((_, i) => i !== index);
-            const defBcv = Number(bcvRate) || 36.5;
-            // --- CORRECCIÓN: pasar applyIVA ---
-            const { totalPaidUSD: otherPaidUSD } = computePaidAndTotals(otherPayments as PaymentState[], paymentMethods || [], defBcv);
-
+            const { totalPaidUSD: otherPaidUSD } = computePaidAndTotals(otherPayments as PaymentState[], paymentMethods || [], DEFAULT_BCV_RATE);
             const remainingUSDForThis = Math.max(0, totalToPayWithIVA - otherPaidUSD);
 
+            // ACTUALIZACIÓN ATÓMICA: Asignamos todos los campos del pago en un solo bloque
+            // para evitar estados intermedios inconsistentes
             if (selectedCurrency === 'VES') {
-                const rate = Number(bcvRate) || 36.5;
-                currentPayment.bcvRate = rate;
-                currentPayment.amount = (remainingUSDForThis * rate).toFixed(2);
+                Object.assign(currentPayment, {
+                    method: newMethodCode,
+                    currency: selectedCurrency,
+                    bcvRate: rateInicial,
+                    amount: (remainingUSDForThis * rateInicial).toFixed(2)
+                });
             } else {
-                currentPayment.bcvRate = undefined;
-                currentPayment.amount = remainingUSDForThis > 0 ? remainingUSDForThis.toFixed(2) : '';
+                Object.assign(currentPayment, {
+                    method: newMethodCode,
+                    currency: selectedCurrency,
+                    bcvRate: undefined,
+                    amount: remainingUSDForThis > 0 ? remainingUSDForThis.toFixed(2) : ''
+                });
             }
             newPayments[index] = currentPayment;
         }
 
         if (field === 'amount') {
-            // actualizar amount; si currency es VES asegurarnos bcvRate existe
+            currentPayment[field] = value;
+            // Asegurar que si es VES, tenga bcvRate
             if (currentPayment.currency === 'VES' && !currentPayment.bcvRate) {
                 currentPayment.bcvRate = Number(bcvRate) || 36.5;
             }

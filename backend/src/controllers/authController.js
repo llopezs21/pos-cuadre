@@ -44,3 +44,29 @@ export const login = async (req, res) => {
         res.status(500).json({ message: 'Error en el servidor', error });
     }
 };
+
+// FASE 2: Función para obtener el usuario actual (perfil protegido)
+export const getCurrentUser = async (req, res) => {
+    try {
+        // req.user viene del middleware protect y contiene { userId, role }
+        const userId = req.user.userId;
+        
+        const [users] = await pool.query('SELECT id, username, role FROM users WHERE id = ?', [userId]);
+        
+        if (users.length === 0) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+        
+        const user = users[0];
+        res.json({ 
+            user: { 
+                id: user.id, 
+                username: user.username, 
+                role: user.role 
+            } 
+        });
+    } catch (error) {
+        console.error('Error al obtener usuario actual:', error);
+        res.status(500).json({ message: 'Error al obtener usuario', error });
+    }
+};

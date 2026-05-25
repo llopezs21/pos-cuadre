@@ -53,8 +53,10 @@ interface AuthState {
   user: { id: number; username: string; role: string } | null;
   token: string | null;
   isAuthenticated: boolean;
+  isAuthLoading: boolean; // FASE 2: Flag para controlar estado de carga de autenticación
   login: (data: any) => Promise<void>;
   logout: () => void;
+  fetchCurrentUser: () => Promise<void>; // FASE 2: Función para obtener usuario actual
 }
 
 interface SessionState {
@@ -206,6 +208,47 @@ export const useAppStore = create<AppState & AuthState & SessionState & AdminSta
   token: initialToken,
   user: initialUser,
   isAuthenticated: !!initialToken,
+  isAuthLoading: false, // FASE 2: Inicializar como false (ya tenemos token del localStorage)
+
+  // FASE 2: Función para verificar/obtener el usuario actual desde el backend
+  fetchCurrentUser: async () => {
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) {
+      set({ user: null, isAuthLoading: false, isAuthenticated: false });
+      return;
+    }
+    
+    set({ isAuthLoading: true });
+    try {
+      // Endpoint protegido que devuelve el perfil del usuario autenticado
+      const response = await fetch('http://localhost:4000/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${currentToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('No autorizado');
+      }
+      
+      const data = await response.json();
+      set({ 
+        user: data.user, 
+        isAuthLoading: false,
+        isAuthenticated: true 
+      });
+    } catch (error) {
+      console.error('Error al obtener usuario:', error);
+      // Si falla, limpiar la sesión
+      localStorage.removeItem('token');
+      set({ 
+        user: null, 
+        isAuthLoading: false,
+        isAuthenticated: false,
+        token: null
+      });
+    }
+  },
 
   login: async (data) => {
     try {
