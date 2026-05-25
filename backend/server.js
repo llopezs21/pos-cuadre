@@ -13,6 +13,7 @@ import paymentCalcRouter from './src/routes/paymentCalculator.js'; // <-- Nueva 
 import bcvRoutes from './src/routes/bcvRoutes.js';
 import paymentConfigRoutes from './src/routes/paymentConfigRoutes.js';
 import userAdminRoutes from './src/routes/userAdminRoutes.js'; // <-- Nueva línea
+import { initializeDatabase } from './src/db/init.js'; // <-- NUEVO: Sistema de inicialización
 
 // Configuración inicial
 dotenv.config();
@@ -43,9 +44,38 @@ app.get('/', (req, res) => {
   res.send('🚀 API de Cuadre de Caja funcionando!');
 });
 
+// ===== INICIALIZACIÓN Y ARRANQUE DEL SERVIDOR =====
+console.log('🔵 Iniciando proceso de arranque del servidor...');
+
+// Función async para manejar la inicialización de la base de datos
+async function startServer() {
+  try {
+    console.log('🔵 Llamando a initializeDatabase()...');
+    
+    // 1. Inicializar base de datos (con reintentos automáticos)
+    await initializeDatabase();
+    
+    console.log('🔵 initializeDatabase() completada. Iniciando servidor Express...');
+
+    // 2. Una vez la BD está lista, iniciar el servidor
+    app.listen(PORT, () => {
+      console.log(`\n✅ Servidor corriendo en http://localhost:${PORT}`);
+      console.log('✅ API lista para recibir peticiones\n');
+    });
+
+  } catch (error) {
+    console.error('\n❌ ERROR FATAL AL INICIAR EL SERVIDOR:');
+    console.error(error);
+    console.error('\n💡 Verifica que MySQL esté corriendo y las credenciales en .env sean correctas.\n');
+    process.exit(1); // Salir con código de error
+  }
+}
+
 // Iniciar el servidor
-app.listen(PORT, () => {
-  console.log(`✅ Servidor corriendo en http://localhost:${PORT}`);
+console.log('🔵 Ejecutando startServer()...');
+startServer().catch(err => {
+  console.error('❌ Error no capturado en startServer():', err);
+  process.exit(1);
 });
 
 export default app;

@@ -170,6 +170,52 @@ git push origin main --tags
 
 ## 🗃️ Base de Datos
 
+### Inicialización Automática ✨
+
+El sistema incluye **inicialización automática de base de datos**. No necesitas ejecutar migraciones manualmente.
+
+```bash
+# Solo levanta Docker y todo se configura automáticamente
+docker-compose up -d
+```
+
+**El sistema automáticamente:**
+1. ✅ Espera a que MySQL esté disponible (con reintentos)
+2. ✅ Crea todas las tablas necesarias
+3. ✅ Inserta datos iniciales (usuario admin + métodos de pago)
+4. ✅ Inicia el servidor backend
+
+### Datos de Acceso Iniciales
+
+**Usuario admin creado automáticamente:**
+- Usuario: `admin`
+- Contraseña: `admin123`
+- ⚠️ **Cambia esta contraseña inmediatamente en producción**
+
+### Tablas Principales
+
+- `users` - Usuarios y roles
+- `cashier_sessions` - Sesiones de caja (abiertas/cerradas)
+- `transactions` - Transacciones registradas
+- `payments` - Detalles de pagos (método, monto, tasa BCV)
+- `payment_methods` - Métodos de pago configurables
+- `abonos` - Pagos anticipados de clientes
+- `external_clients` - Clientes del sistema externo
+- `external_invoices` - Facturas externas sincronizadas
+
+📖 **Ver documentación completa:** [backend/DATABASE.md](./backend/DATABASE.md)
+
+### phpMyAdmin
+
+Accede a la base de datos visualmente:
+```
+http://localhost:8084
+Usuario: root
+Contraseña: (la de tu .env)
+```
+
+## 🗃️ Base de Datos (Comandos Avanzados)
+
 ### Migraciones
 
 ```bash
