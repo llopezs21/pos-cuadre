@@ -1,0 +1,12 @@
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+# Instalamos solo las dependencias de producción para un build más ligero
+RUN npm install --only=production
+COPY . .
+# Establecemos el entorno de producción
+ENV NODE_ENV=production
+# El puerto que expone el contenedor de Node
+EXPOSE 4010
+# Comando para iniciar el servidor en producción
+CMD ["node", "server.js"]

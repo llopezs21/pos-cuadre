@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # Servicio de la Base de Datos
+  db:
+    image: mysql:8.0
+    container_name: mysql_prod_db
+    restart: unless-stopped
+    ports: # <-- SECCIÓN A AÑADIR
+      - "3309:3306" # Mapea el puerto 3309 del servidor al 3306 del contenedor
+    environment:
+      MYSQL_ROOT_PASSWORD: 21241617
+      MYSQL_DATABASE: cuadre_caja_db
+    volumes:
+      # Mapea a una carpeta en el servidor para backups
+      - /opt/mysql_data:/var/lib/mysql
+
+  # Servicio del Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: node_prod_api
+    restart: unless-stopped
+    ports:
+      - "4010:4000"
+    env_file: # <-- MEJORA 1: Lee las variables desde el archivo .env
+      - ./backend/.env
+    depends_on:
+      - db
+
+# MEJORA 2: Se elimina la sección 'volumes:' de aquí abajo ya que no se usa un named volume.

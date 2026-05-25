@@ -1,0 +1,51 @@
+services:
+  # Servicio de la Base de Datos (MySQL)
+  db:
+    image: mysql:8.0
+    container_name: mysql_db
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: cuadre_caja_db
+    ports:
+      - "3309:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+
+  # Servicio de Administración de la BD (phpMyAdmin)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: pma_manager
+    restart: unless-stopped
+    ports:
+      - "8084:80"
+    env_file:
+      - ./backend/.env
+    environment:
+      PMA_HOST: db
+    depends_on:
+      - db
+
+  # Servicio del Backend (Node.js API)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: node_api
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: cuadre_caja_db
+    depends_on:
+      - db
+
+volumes:
+  db_data:

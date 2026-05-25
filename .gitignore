@@ -1,0 +1,105 @@
+# ===================================
+# POS CUADRE - .gitignore Maestro
+# ===================================
+
+# Respaldos y archivos locales
+_respaldos_locales/
+Backups/
+Archivos de produccion*/
+posbeta/
+
+# Archivos de respaldo y bases de datos
+*.sql
+*.csv
+*.rar
+*.zip
+*.tar.gz
+*.7z
+*.backup
+*.bak
+*.dump
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Node.js (Backend y Frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json.backup
+.pnpm-store/
+
+# Build y distribución
+dist/
+build/
+*.tsbuildinfo
+.vite/
+
+# Logs
+logs/
+*.log
+combined.log
+error.log
+access.log
+
+# Uploads y archivos generados por usuarios
+uploads/
+temp/
+tmp/
+*.tmp
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.code-workspace
+
+# Sistema operativo
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Testing
+coverage/
+.nyc_output/
+*.test.js.snap
+
+# Cache
+.cache/
+.eslintcache
+.stylelintcache
+
+# Sequelize
+.sequelizerc.backup
+
+# Docker (opcional, descomentar si no quieres versionar)
+# docker-compose.override.yml
+
+# Python (si usas scripts Python)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+ENV/
+
+# Certificados y claves
+*.pem
+*.key
+*.cert
+*.crt
