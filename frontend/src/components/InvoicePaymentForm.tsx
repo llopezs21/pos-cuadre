@@ -69,7 +69,11 @@ function computePaidAndTotals(payments: PaymentState[], paymentMethods: any[], d
 }
 
 export const InvoicePaymentForm = () => {
-    const { addTransaction, bcvRate, paymentMethods, fetchPaymentMethods } = useAppStore();
+    const { addTransaction, bcvRate, paymentMethods, fetchPaymentMethods, globalSettings } = useAppStore(); // FASE 5: agregar globalSettings
+
+    // FASE 5: Extraer valores dinámicos de reglas de negocio (con fallback)
+    const IVA_RATE = globalSettings?.iva_rate ?? 0.16;
+    const IVA_THRESHOLD = globalSettings?.iva_threshold ?? 0.5;
 
     const [open, setOpen] = useState(false);
     const [options, setOptions] = useState<any[]>([]);
@@ -140,17 +144,19 @@ export const InvoicePaymentForm = () => {
     // --- CORRECCIÓN: calcular applyIVA (igual que antes) ---
     const { usdPaid, applyIVA } = useMemo(() => {
         if (totalToPayInNewMoney === 0) return { usdPaid: usdPaymentTotal, applyIVA: false };
-        const shouldApplyIVA = (usdPaymentTotal / totalToPayInNewMoney) < 0.5;
+        // FASE 5: Usar IVA_THRESHOLD dinámico en lugar de 0.5 hardcoded
+        const shouldApplyIVA = (usdPaymentTotal / totalToPayInNewMoney) < IVA_THRESHOLD;
         return { usdPaid: usdPaymentTotal, applyIVA: shouldApplyIVA };
-    }, [usdPaymentTotal, totalToPayInNewMoney]);
+    }, [usdPaymentTotal, totalToPayInNewMoney, IVA_THRESHOLD]); // FASE 5: agregar IVA_THRESHOLD como dependencia
 
     // --- NUEVA LÓGICA: totalToPayWithIVA aplica IVA solo a la porción VES ---
     const totalToPayWithIVA = useMemo(() => {
       if (!applyIVA) return totalToPayInNewMoney;
       const vesPortionBase = Math.max(0, totalToPayInNewMoney - usdPaid);
-      const ivaOnVesPortion = vesPortionBase * 0.16; // usa la constante IVA (16%)
+      // FASE 5: Usar IVA_RATE dinámico en lugar de 0.16 hardcoded
+      const ivaOnVesPortion = vesPortionBase * IVA_RATE;
       return +(totalToPayInNewMoney + ivaOnVesPortion);
-    }, [totalToPayInNewMoney, usdPaid, applyIVA]);
+    }, [totalToPayInNewMoney, usdPaid, applyIVA, IVA_RATE]); // FASE 5: agregar IVA_RATE como dependencia
 
     // --- CORRECCIÓN 2: Renombrar variable no usada ---
     // CORRECCIÓN: usar computePaidAndTotals pasando applyIVA y añadir applyIVA como dependencia
@@ -226,14 +232,16 @@ export const InvoicePaymentForm = () => {
                     .filter(p => p.currency === 'USD')
                     .reduce((sum, p) => sum + parseAmount(p.amount), 0);
                 
+                // FASE 5: Usar IVA_THRESHOLD dinámico
                 const shouldApplyIVA = totalToPayInNewMoney > 0 
-                    ? (currentUsdPaymentTotal / totalToPayInNewMoney) < 0.5
+                    ? (currentUsdPaymentTotal / totalToPayInNewMoney) < IVA_THRESHOLD
                     : false;
                 
                 let freshTotalToPayWithIVA = totalToPayInNewMoney;
                 if (shouldApplyIVA) {
                     const vesPortionBase = Math.max(0, totalToPayInNewMoney - currentUsdPaymentTotal);
-                    const ivaOnVesPortion = vesPortionBase * 0.16;
+                    // FASE 5: Usar IVA_RATE dinámico
+                    const ivaOnVesPortion = vesPortionBase * IVA_RATE;
                     freshTotalToPayWithIVA = totalToPayInNewMoney + ivaOnVesPortion;
                 }
                 
@@ -438,7 +446,8 @@ export const InvoicePaymentForm = () => {
                     <Button startIcon={<AddCircleOutlineIcon />} onClick={addPayment}>Añadir Método de Pago</Button>
                     <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
                         <Typography variant="body2">Total Base: ${totalToPay.toFixed(2)}</Typography>
-                        {applyIVA && <Typography color="warning.main" variant="body2">Se aplica IVA (16%)</Typography>}
+                        {/* FASE 5: Mostrar IVA dinámico */}
+                        {applyIVA && <Typography color="warning.main" variant="body2">Se aplica IVA ({(IVA_RATE * 100).toFixed(0)}%)</Typography>}
                         <Typography variant="h6">Total a Pagar (calculado): ${totalToPayWithIVA.toFixed(2)}</Typography>
                         <Divider sx={{ my: 1 }} />
                         <Typography>Pagado en USD: ${usdPaid.toFixed(2)}</Typography>

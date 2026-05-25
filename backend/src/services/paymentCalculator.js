@@ -1,4 +1,5 @@
 import axios from 'axios';
+import pool from '../db/database.js'; // FASE 2: Agregar pool para leer global_settings
 
 // Cargar modelos CommonJS desde ESM mediante import dinámico
 const dbModule = await import('../../models/index.cjs');
@@ -10,7 +11,35 @@ const bcvModule = await import('./bcvService.js');
 const { getBcvRateForFirstOfMonth } = bcvModule;
 
 const DEFAULT_BCV = Number(process.env.DEFAULT_BCV_RATE) || 36.5;
-const DEFAULT_IVA = Number(process.env.IVA_RATE) || 0.16;
+
+/**
+ * FASE 2: Helper para obtener configuración global
+ * Cachea el resultado durante 1 minuto para evitar queries repetidas
+ */
+let _settingsCache = null;
+let _settingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 60000; // 1 minuto
+
+async function getGlobalSettings() {
+  const now = Date.now();
+  if (_settingsCache && (now - _settingsCacheTime) < SETTINGS_CACHE_TTL) {
+    return _settingsCache;
+  }
+  
+  const [rows] = await pool.query('SELECT * FROM global_settings WHERE id = 1');
+  if (rows.length === 0) {
+    throw new Error('Configuración global no encontrada en la base de datos.');
+  }
+  
+  _settingsCache = {
+    IVA_RATE: Number(rows[0].iva_rate),
+    IVA_THRESHOLD: Number(rows[0].iva_threshold),
+    RECONCILIATION_TOLERANCE: Number(rows[0].reconciliation_tolerance)
+  };
+  _settingsCacheTime = now;
+  
+  return _settingsCache;
+}
 
 /**
  * payload: {
@@ -27,6 +56,11 @@ const DEFAULT_IVA = Number(process.env.IVA_RATE) || 0.16;
  * returns: objeto con bcv_rate, bcv_source, iva_applied y desglose
  */
 export const calculatePayment = async (payload) => {
+  // FASE 2: Leer configuración global al inicio
+  const settings = await getGlobalSettings();
+  const IVA_RATE = settings.IVA_RATE;
+  const IVA_THRESHOLD = settings.IVA_THRESHOLD;
+  
   const {
     amount = 0,
     currency = 'USD',
@@ -82,11 +116,12 @@ export const calculatePayment = async (payload) => {
   const commission_percentage = Number(methodConfig?.commission_percentage) || 0;
   const commission_fixed = Number(methodConfig?.commission_fixed) || 0;
 
-  // 4) determinar si aplica IVA según la regla: pagos en VES que representen >50% aplican IVA.
+  // 4) FASE 2: Determinar si aplica IVA usando IVA_THRESHOLD DINÁMICO
   let iva_applied = false;
   if (currency === 'VES') {
     if (checkout_total_usd && Number(checkout_total_usd) > 0) {
-      iva_applied = (amount_usd / Number(checkout_total_usd)) > 0.5;
+      // Usar IVA_THRESHOLD dinámico en lugar de 0.5 hardcoded
+      iva_applied = (amount_usd / Number(checkout_total_usd)) > IVA_THRESHOLD;
     } else {
       // si no hay total de checkout, asumimos pago completo -> aplica IVA
       iva_applied = true;
@@ -96,8 +131,8 @@ export const calculatePayment = async (payload) => {
     iva_applied = Boolean(apply_iva);
   }
 
-  // 5) calcular IVA (sobre monto bruto en USD) si corresponde
-  const iva_amount = iva_applied ? +(amount_usd * DEFAULT_IVA) : 0;
+  // 5) FASE 2: Calcular IVA usando IVA_RATE DINÁMICO
+  const iva_amount = iva_applied ? +(amount_usd * IVA_RATE) : 0;
 
   // 6) calcular comision
   const commission_amount = +(amount_usd * (commission_percentage / 100) + commission_fixed);

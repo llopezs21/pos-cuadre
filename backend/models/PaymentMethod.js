@@ -7,7 +7,10 @@ module.exports = (sequelize, DataTypes) => {
     currency: { type: DataTypes.ENUM('USD', 'VES'), allowNull: false, defaultValue: 'USD' },
     is_active: { type: DataTypes.BOOLEAN, defaultValue: true },
     requires_responsable: { type: DataTypes.BOOLEAN, defaultValue: false },
-    generates_commission: { type: DataTypes.BOOLEAN, defaultValue: false }
+    generates_commission: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // FASE 1: Nuevas columnas para reglas de negocio dinámicas
+    triggers_iva: { type: DataTypes.BOOLEAN, defaultValue: false },
+    is_base_currency: { type: DataTypes.BOOLEAN, defaultValue: false }
   }, {
     tableName: 'payment_methods',
     timestamps: true,

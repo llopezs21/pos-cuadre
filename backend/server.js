@@ -13,6 +13,7 @@ import paymentCalcRouter from './src/routes/paymentCalculator.js'; // <-- Nueva 
 import bcvRoutes from './src/routes/bcvRoutes.js';
 import paymentConfigRoutes from './src/routes/paymentConfigRoutes.js';
 import userAdminRoutes from './src/routes/userAdminRoutes.js'; // <-- Nueva línea
+import settingsRoutes from './src/routes/settings.js'; // <-- FASE 1: Rutas de configuración global
 import { initializeDatabase } from './src/db/init.js'; // <-- NUEVO: Sistema de inicialización
 
 // Configuración inicial
@@ -36,6 +37,7 @@ app.use('/api/payments', paymentCalcRouter); // /api/payments/calculate
 app.use('/api/bcv', bcvRoutes); // <-- Nueva línea
 app.use('/api/payment-configs', paymentConfigRoutes);
 app.use('/api/admin/users', userAdminRoutes); // <-- Nueva línea
+app.use('/api/settings', settingsRoutes); // <-- FASE 1: Rutas de configuración global
 app.use('/api', transactionRoutes);
 
 

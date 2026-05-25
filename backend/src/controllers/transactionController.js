@@ -179,6 +179,23 @@ export const getClosingSummary = async (req, res) => {
       `;
       const [transactions] = await pool.query(txQuery, [date]);
       
+      // FASE 2: LEER CONFIGURACIÓN GLOBAL DE REGLAS DE NEGOCIO
+      // Antes de cualquier cálculo, obtener los parámetros dinámicos desde la BD
+      const [settingsRows] = await pool.query('SELECT * FROM global_settings WHERE id = 1');
+      
+      if (settingsRows.length === 0) {
+          return res.status(500).json({ 
+              message: 'Configuración global no encontrada. Ejecute los scripts de inicialización.' 
+          });
+      }
+      
+      const settings = settingsRows[0];
+      const IVA_RATE = Number(settings.iva_rate); // Antes: 0.16 hardcoded
+      const IVA_THRESHOLD = Number(settings.iva_threshold); // Antes: 0.5 hardcoded
+      const RECONCILIATION_TOLERANCE = Number(settings.reconciliation_tolerance); // Antes: 0.05 hardcoded
+      
+      console.log(`📊 Configuración aplicada: IVA=${IVA_RATE}, Umbral=${IVA_THRESHOLD}, Tolerancia=${RECONCILIATION_TOLERANCE}`);
+      
       // 2. OBTENER PAGOS DE ABONOS CREADOS HOY (para totales por método)
       const abonosQuery = `
           SELECT p.* FROM payments p
@@ -195,7 +212,6 @@ export const getClosingSummary = async (req, res) => {
 
       // Lógica de cálculo del resumen
       const defaultBcvRate = parseFloat(process.env.DEFAULT_BCV_RATE || 36.5);
-      const ivaRate = parseFloat(process.env.IVA_RATE || '0.16');
 
       let totalCashUSD = 0, totalCashVES = 0, totalPosMiBanco = 0, totalPosBanesco = 0;
       let totalMikrowispUSD = 0, totalSupportInstallationUSD = 0;
@@ -286,8 +302,8 @@ export const getClosingSummary = async (req, res) => {
           const invoiceBase = Number(tx.invoiceBaseUSD) || 0;
           const netBaseUSD = Math.max(0, invoiceBase - appliedAbonosForTx); // base neta después de abonos
 
-          // 3) decidir aplicar IVA para esta transacción (misma regla que frontend)
-          const applyIVAforTx = netBaseUSD > 0 ? ((usdPaidDirect / netBaseUSD) < 0.5) : false;
+          // 3) FASE 2: Decidir aplicar IVA usando el UMBRAL DINÁMICO desde global_settings
+          const applyIVAforTx = netBaseUSD > 0 ? ((usdPaidDirect / netBaseUSD) < IVA_THRESHOLD) : false;
 
           // 4) convertir cada pago a USD teniendo en cuenta applyIVAforTx para pagos VES/POS
           payments.forEach(p => {
@@ -301,14 +317,14 @@ export const getClosingSummary = async (req, res) => {
                   if (bcvRate > 0) {
                       const amountInUSD = paymentAmount / bcvRate;
                       // Si applyIVAforTx es true, asumimos que el monto en VES incluye IVA,
-                      // por lo que la porción de base USD es amountInUSD / (1 + ivaRate)
+                      // por lo que la porción de base USD es amountInUSD / (1 + IVA_RATE)
                       totalPaidInUSD += amountInUSD;
                   }
               }
           });
 
-          // 5) calcular expected usando netBaseUSD y applyIVAforTx
-          const expectedTotalUSD = netBaseUSD * (applyIVAforTx ? (1 + ivaRate) : 1);
+          // 5) FASE 2: Calcular expected usando netBaseUSD y applyIVAforTx con IVA_RATE DINÁMICO
+          const expectedTotalUSD = netBaseUSD * (applyIVAforTx ? (1 + IVA_RATE) : 1);
 
           // acumular categorías
           if (tx.invoiceType === 'service') {
@@ -317,8 +333,9 @@ export const getClosingSummary = async (req, res) => {
               totalSupportInstallationUSD += Number(tx.invoiceBaseUSD) || 0;
           }
 
+          // FASE 2: Usar TOLERANCIA DINÁMICA para detectar diferencias
           const differenceUSD = totalPaidInUSD - expectedTotalUSD;
-          if (Math.abs(differenceUSD) > 0.05) { // Tolerancia de 5 centavos
+          if (Math.abs(differenceUSD) > RECONCILIATION_TOLERANCE) {
               differences.push({
                   client: tx.clientName,
                   amount: differenceUSD,

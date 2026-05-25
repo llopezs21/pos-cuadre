@@ -19,6 +19,7 @@ export const DashboardPage = () => {
   const fetchBcvRate = useAppStore(state => state.fetchBcvRate);
   const fetchPaymentMethods = useAppStore(state => state.fetchPaymentMethods);
   const fetchCurrentUser = useAppStore(state => state.fetchCurrentUser); // FASE 2: Función para obtener usuario
+  const fetchGlobalSettings = useAppStore(state => state.fetchGlobalSettings); // FASE 3: Función para obtener configuración global
   const logout = useAppStore(state => state.logout);
   const isSessionOpen = useAppStore(state => state.isSessionOpen);
 
@@ -40,6 +41,8 @@ export const DashboardPage = () => {
   useEffect(() => {
     // FASE 2: Verificar usuario actual desde el backend
     fetchCurrentUser();
+    // FASE 3: Cargar configuración global de reglas de negocio
+    fetchGlobalSettings();
     // Evitar llamadas redundantes: pedir current session solo si no está en el store
     if (!currentSession) getCurrentSession();
     fetchBcvRate();
@@ -221,6 +224,9 @@ export const DashboardPage = () => {
                 </Button>
                 <Button component={RouterLink} to="/admin/config" color="inherit" sx={{ mr: 2 }}>
                   Configurar Pagos
+                </Button>
+                <Button component={RouterLink} to="/admin/business-rules" color="inherit" sx={{ mr: 2 }}>
+                  Reglas de Negocio
                 </Button>
                 <Button component={RouterLink} to="/admin/sync" color="inherit" sx={{ mr: 2 }}>
                   Sincronizar

@@ -30,7 +30,20 @@ interface PaymentMethod {
   name: string;
   code: string;
   currency: 'USD' | 'VES';
-  // ...otros campos si vienen
+  is_active?: boolean;
+  requires_responsable?: boolean;
+  generates_commission?: boolean;
+  triggers_iva?: boolean; // FASE 3
+  is_base_currency?: boolean; // FASE 3
+}
+
+// FASE 3: Interfaz para configuración global
+interface GlobalSettings {
+  id: number;
+  iva_rate: number;
+  iva_threshold: number;
+  reconciliation_tolerance: number;
+  updated_at: string;
 }
 
 interface AppState {
@@ -98,6 +111,12 @@ interface EditModalState {
   closeEditModal: () => void;
 }
 
+// FASE 3: Estado de configuración global
+interface GlobalSettingsState {
+  globalSettings: GlobalSettings | null;
+  fetchGlobalSettings: () => Promise<void>;
+}
+
 function getUserFromToken(token: string | null) {
   if (!token) return null;
   try {
@@ -116,7 +135,7 @@ function getUserFromToken(token: string | null) {
 const initialToken = localStorage.getItem('token');
 const initialUser = getUserFromToken(initialToken);
 
-export const useAppStore = create<AppState & AuthState & SessionState & AdminState & SyncState & ClientSyncState & BcvState & AbonoState & EditModalState>((set, get) => ({
+export const useAppStore = create<AppState & AuthState & SessionState & AdminState & SyncState & ClientSyncState & BcvState & AbonoState & EditModalState & GlobalSettingsState>((set, get) => ({
   transactions: [],
   summary: null,
   loading: false,
@@ -424,6 +443,45 @@ export const useAppStore = create<AppState & AuthState & SessionState & AdminSta
     } catch (err) {
       console.error('Error loading payment methods', err);
       // opcional: toast.error('No se pudieron cargar los métodos de pago.');
+    }
+  },
+
+  // FASE 3: Estado y acciones de configuración global
+  globalSettings: null,
+  
+  fetchGlobalSettings: async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.warn('No hay token para obtener configuración global');
+        return;
+      }
+
+      const response = await fetch('http://localhost:4000/api/settings', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('No se pudo obtener la configuración global');
+      }
+
+      const data = await response.json();
+      set({ globalSettings: data.data });
+      console.log('📊 Configuración global cargada:', data.data);
+    } catch (error) {
+      console.error('Error al obtener configuración global:', error);
+      // Establecer valores por defecto como fallback
+      set({
+        globalSettings: {
+          id: 1,
+          iva_rate: 0.16,
+          iva_threshold: 0.5,
+          reconciliation_tolerance: 0.05,
+          updated_at: new Date().toISOString()
+        }
+      });
     }
   },
 }));

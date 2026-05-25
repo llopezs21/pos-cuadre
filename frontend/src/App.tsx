@@ -9,6 +9,7 @@ import { EditTransactionModal } from './components/EditTransactionModal';
 import { AdminSyncPage } from './pages/AdminSyncPage';
 import { AdminConfigPage } from './pages/AdminConfigPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
+import { BusinessRulesPage } from './pages/BusinessRulesPage'; // FASE 4
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
             <Route path="/admin/sync" element={<AdminSyncPage />} />
             <Route path="/admin/config" element={<AdminConfigPage />} />
             <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/business-rules" element={<BusinessRulesPage />} /> {/* FASE 4 */}
           </Route>
         </Route>
       </Routes>

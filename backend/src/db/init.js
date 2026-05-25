@@ -146,6 +146,21 @@ async function addMissingColumns() {
             console.log('  + Columna is_default agregada a payment_method_configs');
         }
 
+        // ===== FASE 1: payment_methods - Nuevas columnas para reglas dinámicas =====
+        if (!await columnExists('payment_methods', 'triggers_iva')) {
+            await connection.query(
+                `ALTER TABLE payment_methods ADD COLUMN triggers_iva BOOLEAN DEFAULT FALSE COMMENT 'Si este método dispara aplicación de IVA' AFTER generates_commission`
+            );
+            console.log('  + Columna triggers_iva agregada a payment_methods');
+        }
+        
+        if (!await columnExists('payment_methods', 'is_base_currency')) {
+            await connection.query(
+                `ALTER TABLE payment_methods ADD COLUMN is_base_currency BOOLEAN DEFAULT FALSE COMMENT 'Si este método es considerado moneda base para el umbral' AFTER triggers_iva`
+            );
+            console.log('  + Columna is_base_currency agregada a payment_methods');
+        }
+
         console.log('✅ Verificación de columnas completada.');
 
         // ===== CORRECCIÓN CRÍTICA: Cambiar id de VARCHAR a INT AUTO_INCREMENT =====
@@ -330,6 +345,27 @@ async function initializeTables() {
         `);
         console.log('  ✓ Tabla users creada/verificada.');
 
+        // ===== FASE 1: TABLA global_settings - Parámetros dinámicos de reglas de negocio =====
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS global_settings (
+                id INT PRIMARY KEY DEFAULT 1,
+                iva_rate DECIMAL(5, 4) NOT NULL DEFAULT 0.1600 COMMENT 'Tasa de IVA (ej: 0.16 = 16%)',
+                iva_threshold DECIMAL(5, 4) NOT NULL DEFAULT 0.5000 COMMENT 'Umbral de exoneración de IVA (ej: 0.5 = 50%)',
+                reconciliation_tolerance DECIMAL(10, 2) NOT NULL DEFAULT 0.05 COMMENT 'Tolerancia de cuadre en USD (ej: 0.05 = 5 centavos)',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                CHECK (id = 1)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+        console.log('  ✓ Tabla global_settings creada/verificada.');
+
+        // Insertar registro único si no existe
+        await connection.query(`
+            INSERT IGNORE INTO global_settings (id, iva_rate, iva_threshold, reconciliation_tolerance)
+            VALUES (1, 0.1600, 0.5000, 0.05);
+        `);
+        console.log('  ✓ Registro de configuración global inicializado.');
+
         // ===== TABLA: cashier_sessions =====
         await connection.query(`
             CREATE TABLE IF NOT EXISTS cashier_sessions (
@@ -426,6 +462,8 @@ async function initializeTables() {
                 is_active BOOLEAN DEFAULT TRUE,
                 requires_responsable BOOLEAN DEFAULT FALSE,
                 generates_commission BOOLEAN DEFAULT FALSE,
+                triggers_iva BOOLEAN DEFAULT FALSE COMMENT 'FASE 1: Si este método dispara aplicación de IVA',
+                is_base_currency BOOLEAN DEFAULT FALSE COMMENT 'FASE 1: Si este método es considerado moneda base para el umbral',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_code (code),
