@@ -197,53 +197,94 @@ export const InvoicePaymentForm = () => {
     };
 
     const handlePaymentChange = (index: number, field: keyof PaymentState, value: any) => {
-        const newPayments = [...payments];
-        const currentPayment = { ...newPayments[index] };
-
-        if (field === 'method') {
-            const newMethodCode = value as string;
-            const selectedMethod = (paymentMethods || []).find((m: any) => m.code === newMethodCode);
-            const selectedCurrency = selectedMethod?.currency || 'USD';
+        // SOLUCIÓN DEFINITIVA: Actualización funcional del estado para evitar stale closures
+        setPayments(prevPayments => {
+            // 1. EXTRACCIÓN REACTIVA: Obtener valores frescos del store en cada ejecución
+            const freshBcvRate = Number(bcvRate) || 36.5;
+            const freshPaymentMethods = paymentMethods || [];
             
-            // FASE 1: Inyección síncrona y forzada de la tasa por defecto (DEFAULT_BCV_RATE)
-            // Calculamos la tasa inicial de forma explícita ANTES de cualquier otra operación
-            const DEFAULT_BCV_RATE = Number(bcvRate) || 36.5;
-            const rateInicial = selectedCurrency === 'VES' ? DEFAULT_BCV_RATE : 1;
+            // 2. INMUTABILIDAD ESTRICTA: Crear una nueva copia del array
+            const updatedPayments = [...prevPayments];
+            const currentPayment = updatedPayments[index];
 
-            const otherPayments = newPayments.filter((_, i) => i !== index);
-            const { totalPaidUSD: otherPaidUSD } = computePaidAndTotals(otherPayments as PaymentState[], paymentMethods || [], DEFAULT_BCV_RATE);
-            const remainingUSDForThis = Math.max(0, totalToPayWithIVA - otherPaidUSD);
+            if (field === 'method') {
+                const newMethodCode = value as string;
+                const selectedMethod = freshPaymentMethods.find((m: any) => m.code === newMethodCode);
+                const selectedCurrency = selectedMethod?.currency || 'USD';
+                
+                // 3. CÁLCULO A PRUEBA DE FALLOS: Recalcular totales con valores frescos
+                const otherPayments = updatedPayments.filter((_, i) => i !== index);
+                const { totalPaidUSD: otherPaidUSD } = computePaidAndTotals(
+                    otherPayments as PaymentState[], 
+                    freshPaymentMethods, 
+                    freshBcvRate
+                );
+                
+                // RECALCULAR totalToPayWithIVA con valores frescos para evitar stale closure
+                // Usamos los valores actuales de totalToPayInNewMoney y usdPaymentTotal
+                const currentUsdPaymentTotal = otherPayments
+                    .filter(p => p.currency === 'USD')
+                    .reduce((sum, p) => sum + parseAmount(p.amount), 0);
+                
+                const shouldApplyIVA = totalToPayInNewMoney > 0 
+                    ? (currentUsdPaymentTotal / totalToPayInNewMoney) < 0.5
+                    : false;
+                
+                let freshTotalToPayWithIVA = totalToPayInNewMoney;
+                if (shouldApplyIVA) {
+                    const vesPortionBase = Math.max(0, totalToPayInNewMoney - currentUsdPaymentTotal);
+                    const ivaOnVesPortion = vesPortionBase * 0.16;
+                    freshTotalToPayWithIVA = totalToPayInNewMoney + ivaOnVesPortion;
+                }
+                
+                const remainingUSDForThis = Math.max(0, freshTotalToPayWithIVA - otherPaidUSD);
 
-            // ACTUALIZACIÓN ATÓMICA: Asignamos todos los campos del pago en un solo bloque
-            // para evitar estados intermedios inconsistentes
-            if (selectedCurrency === 'VES') {
-                Object.assign(currentPayment, {
-                    method: newMethodCode,
-                    currency: selectedCurrency,
-                    bcvRate: rateInicial,
-                    amount: (remainingUSDForThis * rateInicial).toFixed(2)
-                });
-            } else {
-                Object.assign(currentPayment, {
-                    method: newMethodCode,
-                    currency: selectedCurrency,
-                    bcvRate: undefined,
-                    amount: remainingUSDForThis > 0 ? remainingUSDForThis.toFixed(2) : ''
-                });
+                // 4. CREACIÓN DE OBJETO NUEVO (no mutación): Crear pago completamente nuevo
+                if (selectedCurrency === 'VES') {
+                    const calculatedAmount = remainingUSDForThis * freshBcvRate;
+                    // FALLBACK para NaN o valores inválidos
+                    const finalAmount = Number.isFinite(calculatedAmount) && calculatedAmount > 0
+                        ? calculatedAmount.toFixed(2) 
+                        : '';
+
+                    updatedPayments[index] = {
+                        ...currentPayment,
+                        method: newMethodCode,
+                        currency: selectedCurrency,
+                        bcvRate: freshBcvRate,
+                        amount: finalAmount
+                    };
+                } else {
+                    const finalAmount = remainingUSDForThis > 0 
+                        ? remainingUSDForThis.toFixed(2) 
+                        : '';
+
+                    updatedPayments[index] = {
+                        ...currentPayment,
+                        method: newMethodCode,
+                        currency: selectedCurrency,
+                        bcvRate: undefined,
+                        amount: finalAmount
+                    };
+                }
             }
-            newPayments[index] = currentPayment;
-        }
 
-        if (field === 'amount') {
-            currentPayment[field] = value;
-            // Asegurar que si es VES, tenga bcvRate
-            if (currentPayment.currency === 'VES' && !currentPayment.bcvRate) {
-                currentPayment.bcvRate = Number(bcvRate) || 36.5;
+            if (field === 'amount') {
+                const freshBcvRate = Number(bcvRate) || 36.5;
+                
+                // Crear nuevo objeto de pago con el monto actualizado
+                updatedPayments[index] = {
+                    ...currentPayment,
+                    amount: value,
+                    // Asegurar bcvRate si es VES
+                    bcvRate: currentPayment.currency === 'VES' 
+                        ? (currentPayment.bcvRate || freshBcvRate)
+                        : currentPayment.bcvRate
+                };
             }
-            newPayments[index] = currentPayment;
-        }
 
-        setPayments(newPayments);
+            return updatedPayments;
+        });
     };
 
     const addPayment = () => {
@@ -379,7 +420,16 @@ export const InvoicePaymentForm = () => {
                                         ))}
                                     </Select>
                                 </FormControl>
-                                <TextField sx={{ flex: 1 }} type="number" inputProps={{ step: "0.01" }} label="Monto" size="small" value={p.amount} onChange={(e) => handlePaymentChange(index, 'amount', e.target.value)} required />
+                                <TextField 
+                                    sx={{ flex: 1 }} 
+                                    type="number" 
+                                    inputProps={{ step: "0.01" }} 
+                                    label="Monto" 
+                                    size="small" 
+                                    value={p.amount || ''} 
+                                    onChange={(e) => handlePaymentChange(index, 'amount', e.target.value)} 
+                                    required 
+                                />
                                 {p.currency === 'VES' && <TextField sx={{ flex: 0.8 }} type="number" label="Tasa BCV" size="small" value={p.bcvRate || ''} InputProps={{ readOnly: true }} />}
                                 <IconButton onClick={() => removePayment(index)} color="warning"><DeleteOutlineIcon /></IconButton>
                             </Stack>
