@@ -10,7 +10,9 @@ module.exports = (sequelize, DataTypes) => {
     generates_commission: { type: DataTypes.BOOLEAN, defaultValue: false },
     // FASE 1: Nuevas columnas para reglas de negocio dinámicas
     triggers_iva: { type: DataTypes.BOOLEAN, defaultValue: false },
-    is_base_currency: { type: DataTypes.BOOLEAN, defaultValue: false }
+    is_base_currency: { type: DataTypes.BOOLEAN, defaultValue: false },
+    // FASE REESTRUCTURACION: Nueva columna para identificar métodos de efectivo
+    is_cash: { type: DataTypes.BOOLEAN, defaultValue: false }
   }, {
     tableName: 'payment_methods',
     timestamps: true,

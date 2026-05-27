@@ -1,15 +1,24 @@
-import { Box, Typography, CircularProgress, Divider, Avatar } from '@mui/material';
+import { Box, Typography, Avatar, CircularProgress, IconButton, Tooltip } from '@mui/material';
+import LogoutIcon from '@mui/icons-material/Logout';  // FASE 3: Importar icono de logout
 import { useAppStore } from '../../store';
-import PersonIcon from '@mui/icons-material/Person';
+import { useNavigate } from 'react-router-dom';  // FASE 3: Importar navigate
 
 export const UserProfileSection = () => {
   const user = useAppStore(state => state.user);
   const isAuthLoading = useAppStore(state => state.isAuthLoading);
+  const logout = useAppStore(state => state.logout);  // FASE 3: Obtener función logout
+  const navigate = useNavigate();
+
+  // FASE 3: Handler para logout
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   if (isAuthLoading) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 2 }}>
-        <CircularProgress size={24} sx={{ color: 'white' }} />
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <CircularProgress size={40} sx={{ color: 'rgba(255,255,255,0.7)' }} />
         <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
           Verificando usuario...
         </Typography>
@@ -18,36 +27,36 @@ export const UserProfileSection = () => {
   }
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: 'space-between', width: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
-          <PersonIcon />
+          {user?.username?.charAt(0).toUpperCase() || 'U'}
         </Avatar>
         <Box>
-          <Typography variant="subtitle2" sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem' }}>
-            Usuario Activo
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 'bold', color: 'white' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', color: '#fff' }}>
             {user?.username || 'Usuario Anónimo'}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+            Rol: {user?.role || 'N/A'}
           </Typography>
         </Box>
       </Box>
       
-      {user?.role && (
-        <Box sx={{ 
-          backgroundColor: 'rgba(255,255,255,0.1)', 
-          borderRadius: 1, 
-          px: 2, 
-          py: 1,
-          display: 'inline-block'
-        }}>
-          <Typography variant="caption" sx={{ color: 'white', textTransform: 'uppercase', fontWeight: 600 }}>
-            {user.role === 'admin' ? '👑 Administrador' : '📊 Cajero'}
-          </Typography>
-        </Box>
-      )}
-      
-      <Divider sx={{ mt: 2, borderColor: 'rgba(255,255,255,0.1)' }} />
+      {/* FASE 3: Botón de Logout junto al perfil */}
+      <Tooltip title="Cerrar Sesión" placement="right">
+        <IconButton 
+          onClick={handleLogout}
+          sx={{ 
+            color: '#fb923c',  // Color naranja para destacar
+            '&:hover': {
+              backgroundColor: 'rgba(251,146,60,0.1)',
+              color: '#f97316'
+            }
+          }}
+        >
+          <LogoutIcon />
+        </IconButton>
+      </Tooltip>
     </Box>
   );
 };

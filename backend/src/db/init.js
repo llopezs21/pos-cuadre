@@ -160,6 +160,22 @@ async function addMissingColumns() {
             );
             console.log('  + Columna is_base_currency agregada a payment_methods');
         }
+        
+        // FASE REESTRUCTURACION: Agregar columna is_cash
+        if (!await columnExists('payment_methods', 'is_cash')) {
+            await connection.query(
+                `ALTER TABLE payment_methods ADD COLUMN is_cash BOOLEAN DEFAULT FALSE COMMENT 'Si este método es efectivo (requiere calculadora de billetes)' AFTER is_base_currency`
+            );
+            console.log('  + Columna is_cash agregada a payment_methods');
+        }
+        
+        // FASE REESTRUCTURACION: Agregar columna reference a payments
+        if (!await columnExists('payments', 'reference')) {
+            await connection.query(
+                `ALTER TABLE payments ADD COLUMN reference VARCHAR(255) DEFAULT NULL COMMENT 'Número de referencia de transferencias o puntos de venta' AFTER payment_method_code`
+            );
+            console.log('  + Columna reference agregada a payments');
+        }
 
         console.log('✅ Verificación de columnas completada.');
 
@@ -464,6 +480,7 @@ async function initializeTables() {
                 generates_commission BOOLEAN DEFAULT FALSE,
                 triggers_iva BOOLEAN DEFAULT FALSE COMMENT 'FASE 1: Si este método dispara aplicación de IVA',
                 is_base_currency BOOLEAN DEFAULT FALSE COMMENT 'FASE 1: Si este método es considerado moneda base para el umbral',
+                is_cash BOOLEAN DEFAULT FALSE COMMENT 'FASE REESTRUCTURACION: Si este método es efectivo (requiere calculadora de billetes)',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_code (code),
@@ -482,6 +499,7 @@ async function initializeTables() {
                 bcvRate DECIMAL(10, 4) DEFAULT NULL,
                 payment_method_id INT UNSIGNED DEFAULT NULL,
                 payment_method_code VARCHAR(64) DEFAULT NULL,
+                reference VARCHAR(255) DEFAULT NULL COMMENT 'FASE REESTRUCTURACION: Número de referencia de transferencias o puntos de venta',
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_transactionId (transactionId),
@@ -607,23 +625,30 @@ async function seedInitialData() {
         
         if (paymentMethods[0].count === 0) {
             console.log('  📝 Creando métodos de pago básicos...');
-            
+
             const basicMethods = [
-                ['Efectivo USD', 'CASH_USD', 'USD', true, false, false],
-                ['Efectivo VES', 'CASH_VES', 'VES', true, false, false],
-                ['POS Banesco', 'POS_BANESCO', 'VES', true, false, false],
-                ['POS Mi Banco', 'POS_MIBANCO', 'VES', true, false, false]
+                ['Efectivo USD', 'CASH_USD', 'USD', true, false, false, true],  // is_cash: true
+                ['Efectivo VES', 'CASH_VES', 'VES', true, false, false, true],  // is_cash: true
+                ['POS Banesco', 'POS_BANESCO', 'VES', true, false, false, false], // is_cash: false
+                ['POS Mi Banco', 'POS_MIBANCO', 'VES', true, false, false, false] // is_cash: false
             ];
-            
+
             for (const method of basicMethods) {
                 await connection.query(
-                    'INSERT INTO payment_methods (name, code, currency, is_active, requires_responsable, generates_commission) VALUES (?, ?, ?, ?, ?, ?)',
+                    'INSERT INTO payment_methods (name, code, currency, is_active, requires_responsable, generates_commission, is_cash) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     method
                 );
             }
             console.log('  ✓ Métodos de pago básicos creados.');
         } else {
             console.log('  ✓ Métodos de pago ya existen.');
+            
+            // FASE REESTRUCTURACION: Actualizar is_cash para métodos existentes
+            console.log('  📝 Actualizando is_cash para métodos de efectivo...');
+            await connection.query(
+                `UPDATE payment_methods SET is_cash = TRUE WHERE code IN ('CASH_USD', 'CASH_VES')`
+            );
+            console.log('  ✓ Métodos de efectivo actualizados con is_cash = TRUE');
         }
 
         console.log('✅ Datos iniciales verificados/creados exitosamente.');

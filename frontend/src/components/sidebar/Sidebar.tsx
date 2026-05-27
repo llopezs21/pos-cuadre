@@ -1,87 +1,63 @@
-import { Box, Paper, Button } from '@mui/material';
+import { Box, Paper, Divider, IconButton, Typography } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import { UserProfileSection } from './UserProfileSection';
 import { ExchangeRatesSummary } from './ExchangeRatesSummary';
 import { SessionMetricsSummary } from './SessionMetricsSummary';
-import LogoutIcon from '@mui/icons-material/Logout';
-import { useAppStore } from '../../store';
 
 interface SidebarProps {
-  summary?: {
-    totalsByMethod: {
-      totalCashUSD: number;
-      totalCashVES: number;
-      totalPosBanesco: number;
-      totalPosMiBanco: number;
-    };
-    totalsByCategory?: {
-      totalMikrowispUSD: number;
-      totalSupportInstallationUSD: number;
-    };
-  } | null;
+  summary: any;
   onCloseSession?: () => void;
+  isMobile?: boolean;
+  onClose?: () => void;
 }
 
-export const Sidebar = ({ summary, onCloseSession }: SidebarProps) => {
-  const logout = useAppStore(state => state.logout);
-  const isSessionOpen = useAppStore(state => state.isSessionOpen);
-
+export const Sidebar = ({ summary, onCloseSession, isMobile = false, onClose }: SidebarProps) => {
   return (
     <Box 
-      component={Paper} 
-      elevation={4}
+      component={isMobile ? 'div' : Paper}
+      elevation={isMobile ? 0 : 3}
       sx={{ 
-        display: 'flex',
-        flexDirection: 'column',
-        width: '320px', 
+        width: '320px',
         minHeight: '100vh',
         backgroundColor: '#1e293b', 
         color: '#ffffff',
+        padding: 3,
         borderRadius: 0,
-        position: 'sticky',
-        top: 0,
-        overflowY: 'auto',
-        maxHeight: '100vh'
+        position: isMobile ? 'relative' : 'sticky',
+        top: 0
       }}
     >
-      {/* User Profile Section */}
+      {/* Botón de Cerrar (solo en móviles) */}
+      {isMobile && onClose && (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            Menú
+          </Typography>
+          <IconButton 
+            onClick={onClose}
+            sx={{ 
+              color: '#ffffff',
+              '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' }
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+      )}
+      
+      {/* Componentes del Sidebar */}
       <UserProfileSection />
       
-      {/* Exchange Rates Section */}
+      <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
+      
       <ExchangeRatesSummary />
       
-      {/* Session Metrics Section */}
-      {isSessionOpen && <SessionMetricsSummary summary={summary} />}
+      <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
       
-      {/* Action Buttons */}
-      <Box sx={{ mt: 'auto', p: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-        {isSessionOpen && onCloseSession && (
-          <Button 
-            variant="contained" 
-            color="warning" 
-            fullWidth 
-            sx={{ mb: 1 }}
-            onClick={onCloseSession}
-          >
-            Cerrar Caja
-          </Button>
-        )}
-        <Button 
-          variant="outlined" 
-          fullWidth
-          startIcon={<LogoutIcon />}
-          onClick={logout}
-          sx={{ 
-            color: 'white', 
-            borderColor: 'rgba(255,255,255,0.3)',
-            '&:hover': {
-              borderColor: 'rgba(255,255,255,0.6)',
-              backgroundColor: 'rgba(255,255,255,0.05)'
-            }
-          }}
-        >
-          Cerrar Sesión
-        </Button>
-      </Box>
+      <SessionMetricsSummary 
+        summary={summary}
+        onCloseSession={onCloseSession}
+      />
     </Box>
   );
 };

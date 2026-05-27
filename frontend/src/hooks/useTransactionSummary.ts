@@ -45,20 +45,21 @@ export const useTransactionSummary = (transactions: FullTransaction[]): Transact
           // Obtener el método de pago (puede estar en 'method' o 'payment_method_code')
           // Type assertion segura para manejar ambas propiedades
           const paymentAny = payment as any;
-          const paymentMethod = (paymentAny.payment_method_code || payment.method || '').toString().toLowerCase();
+          // FIX: Normalizar a UPPERCASE para coincidir con el backend
+          const paymentMethod = (paymentAny.payment_method_code || payment.method || '').toString().toUpperCase();
 
-          // Sumar según el método de pago
+          // Sumar según el método de pago (comparar en UPPERCASE)
           switch (paymentMethod) {
-            case 'cash_usd':
+            case 'CASH_USD':
               totalCashUSD += safeAmount;
               break;
-            case 'cash_ves':
+            case 'CASH_VES':
               totalCashVES += safeAmount;
               break;
-            case 'pos_banesco':
+            case 'POS_BANESCO':
               totalPosBanesco += safeAmount;
               break;
-            case 'pos_mibanco':
+            case 'POS_MIBANCO':
               totalPosMiBanco += safeAmount;
               break;
             default:

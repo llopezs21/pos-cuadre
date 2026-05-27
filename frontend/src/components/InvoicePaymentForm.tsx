@@ -1,469 +1,518 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store';
 import { searchClients, getUnpaidInvoices, getAvailableAbonos } from '../services/api';
-import { Autocomplete, Box, Button, Checkbox, CircularProgress, FormControlLabel, IconButton, Paper, Stack, TextField, Typography, Select, MenuItem, FormControl, InputLabel, Divider } from '@mui/material';
+import { 
+  Autocomplete, 
+  Box, 
+  Button, 
+  Checkbox, 
+  CircularProgress, 
+  FormControlLabel, 
+  Paper, 
+  Stack, 
+  TextField, 
+  Typography,
+  Divider
+} from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import toast from 'react-hot-toast';
-import { PaymentMethodSelector } from './payment/PaymentMethodSelector';
-import { CurrencyAmountInput } from './payment/CurrencyAmountInput';
-import { VATCalculationsBadge } from './payment/VATCalculationsBadge';
-
-interface PaymentState {
-  method: string; // ahora guarda payment_method_code (p.ej. 'CASH_USD', 'POS_BANESCO')
-  amount: number | string;
-  bcvRate?: number | string | undefined;
-  currency?: 'USD' | 'VES'; // añadido
-}
-
-function parseAmount(value: string | number | null | undefined): number {
-  if (value == null) return 0;
-  let s = String(value).trim();
-  if (!s) return 0;
-  s = s.replace(/\s+/g, '');
-
-  if (s.includes('.') && s.includes(',')) {
-    // "1.234,56" -> "1234.56"
-    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
-      s = s.replace(/\./g, '').replace(',', '.');
-    } else {
-      s = s.replace(/,/g, '');
-    }
-  } else if (s.includes(',')) {
-    s = s.replace(/,/g, '.');
-  }
-  const n = parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/**
- * payments: [{ method, amount, bcvRate }]
- * totalDueUSD: number (USD, ya incluye IVA si aplica)
- * defaultBcv: number
- * Retorna { totalPaidUSD, totalsByMethod }
- */
-// REEMPLAZADA: ahora recibe applyIVA para ajustar la conversión de VES cuando corresponda
-function computePaidAndTotals(payments: PaymentState[], paymentMethods: any[], defaultBcv: number) {
-  let totalPaidUSD = 0;
-  const totalsByMethod: Record<string, number> = {};
-
-  payments.forEach(p => {
-    const methodCode = (p.method || '').toString();
-    const rawAmount = parseAmount(p.amount);
-    totalsByMethod[methodCode] = (totalsByMethod[methodCode] || 0) + rawAmount;
-
-    // resolver moneda del método
-    const method = paymentMethods.find((m: any) => m.code === methodCode);
-    const currency = method?.currency || (methodCode === 'cash_usd' ? 'USD' : 'VES'); // fallback
-
-    const bcv = Number(p.bcvRate) || defaultBcv || 1;
-    if (currency === 'USD') {
-      totalPaidUSD += rawAmount;
-    } else {
-      if (bcv > 0) {
-        const baseUSD = rawAmount / bcv;
-        // CORRECCIÓN: no dividir por 1.16 aquí — el pago en VES ya equivale al monto total recibido en USD.
-        totalPaidUSD += baseUSD;
-      }
-    }
-  });
-
-  return { totalPaidUSD, totalsByMethod };
-}
+import { PaymentEntryModal, PaymentEntry } from './payment/PaymentEntryModal';
+import { PaymentCard } from './payment/PaymentCard';
+import { usePaymentCalculations } from '../hooks/usePaymentCalculations';
 
 export const InvoicePaymentForm = () => {
-    const { addTransaction, bcvRate, paymentMethods, fetchPaymentMethods, globalSettings } = useAppStore(); // FASE 5: agregar globalSettings
+  const { addTransaction, paymentMethods, fetchPaymentMethods } = useAppStore();
 
-    // FASE 5: Extraer valores dinámicos de reglas de negocio (con fallback)
-    const IVA_RATE = globalSettings?.iva_rate ?? 0.16;
-    const IVA_THRESHOLD = globalSettings?.iva_threshold ?? 0.5;
+  // Estados para búsqueda de cliente
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<any[]>([]);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [inputValue, setInputValue] = useState('');
 
-    const [open, setOpen] = useState(false);
-    const [options, setOptions] = useState<any[]>([]);
-    const [loadingSearch, setLoadingSearch] = useState(false);
-    const [inputValue, setInputValue] = useState('');
+  // Estados para facturas y abonos
+  const [selectedClient, setSelectedClient] = useState<any | null>(null);
+  const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
+  const [selectedInvoices, setSelectedInvoices] = useState<any[]>([]);
+  const [availableAbonos, setAvailableAbonos] = useState<any[]>([]);
+  const [selectedAbonos, setSelectedAbonos] = useState<any[]>([]);
+  
+  // FASE 3: Nuevo estado para pagos usando PaymentEntry[]
+  const [payments, setPayments] = useState<PaymentEntry[]>([]);
+  
+  // Estado del modal de pago
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  
+  const [loadingSubmit, setLoadingSubmit] = useState(false);
 
-    const [selectedClient, setSelectedClient] = useState<any | null>(null);
-    const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
-    const [selectedInvoices, setSelectedInvoices] = useState<any[]>([]);
-    // --- NUEVOS ESTADOS PARA ABONOS ---
-    const [availableAbonos, setAvailableAbonos] = useState<any[]>([]);
-    const [selectedAbonos, setSelectedAbonos] = useState<any[]>([]);
-    const [payments, setPayments] = useState<PaymentState[]>([{ method: '', amount: '' }]);
-    const [loadingSubmit, setLoadingSubmit] = useState(false);
+  // Cargar facturas y abonos cuando se selecciona un cliente
+  useEffect(() => {
+    setUnpaidInvoices([]);
+    setSelectedInvoices([]);
+    setAvailableAbonos([]);
+    setSelectedAbonos([]);
 
-    useEffect(() => {
-        setUnpaidInvoices([]);
-        setSelectedInvoices([]);
-        setAvailableAbonos([]);
-        setSelectedAbonos([]);
-
-        if (selectedClient) {
-            // Cargar facturas pendientes, manejando 404 y mostrando mensaje al usuario
-            getUnpaidInvoices(selectedClient.mks_id)
-                .then(res => {
-                    setUnpaidInvoices(res.data || []);
-                })
-                .catch(err => {
-                    if (err?.response?.data?.message) {
-                        toast.error(err.response.data.message);
-                    } else {
-                        toast.error('Error al buscar facturas.');
-                    }
-                    setUnpaidInvoices([]);
-                });
-
-            // Cargar abonos disponibles (no mostramos toast si falla)
-            getAvailableAbonos(selectedClient.mks_id)
-                .then(res => setAvailableAbonos(res.data || []))
-                .catch(err => {
-                    console.error('Error al buscar abonos:', err);
-                    setAvailableAbonos([]);
-                });
-        }
-    }, [selectedClient]);
-
-    const handleAbonoSelection = (abono: any, isChecked: boolean) => {
-        setSelectedAbonos(prev => isChecked ? [...prev, abono] : prev.filter(abn => abn.id !== abono.id));
-    };
-
-    const totalToPay = useMemo(
-        () => selectedInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0),
-        [selectedInvoices]
-    );
-    const totalAbonoCredit = useMemo(
-        () => selectedAbonos.reduce((sum, abn) => sum + Number(abn.amount), 0),
-        [selectedAbonos]
-    );
-    const totalToPayInNewMoney = totalToPay - totalAbonoCredit;
-
-    // --- CORRECCIÓN 1: Lógica de 'usdPaymentTotal' ---
-    const usdPaymentTotal = useMemo(() => {
-      return payments
-        .filter(p => p.currency === 'USD') // ahora usamos la moneda seleccionada
-        .reduce((sum, p) => sum + parseAmount(p.amount), 0);
-    }, [payments]);
-
-    // --- CORRECCIÓN: calcular applyIVA (igual que antes) ---
-    const { usdPaid, applyIVA } = useMemo(() => {
-        if (totalToPayInNewMoney === 0) return { usdPaid: usdPaymentTotal, applyIVA: false };
-        // FASE 5: Usar IVA_THRESHOLD dinámico en lugar de 0.5 hardcoded
-        const shouldApplyIVA = (usdPaymentTotal / totalToPayInNewMoney) < IVA_THRESHOLD;
-        return { usdPaid: usdPaymentTotal, applyIVA: shouldApplyIVA };
-    }, [usdPaymentTotal, totalToPayInNewMoney, IVA_THRESHOLD]); // FASE 5: agregar IVA_THRESHOLD como dependencia
-
-    // --- NUEVA LÓGICA: totalToPayWithIVA aplica IVA solo a la porción VES ---
-    const totalToPayWithIVA = useMemo(() => {
-      if (!applyIVA) return totalToPayInNewMoney;
-      const vesPortionBase = Math.max(0, totalToPayInNewMoney - usdPaid);
-      // FASE 5: Usar IVA_RATE dinámico en lugar de 0.16 hardcoded
-      const ivaOnVesPortion = vesPortionBase * IVA_RATE;
-      return +(totalToPayInNewMoney + ivaOnVesPortion);
-    }, [totalToPayInNewMoney, usdPaid, applyIVA, IVA_RATE]); // FASE 5: agregar IVA_RATE como dependencia
-
-    // --- CORRECCIÓN 2: Renombrar variable no usada ---
-    // CORRECCIÓN: usar computePaidAndTotals pasando applyIVA y añadir applyIVA como dependencia
-    const { totalPaidUSD, totalsByMethod: _totalsByMethod } = useMemo(() => {
-      const defBcv = Number(bcvRate) || 36.5;
-      return computePaidAndTotals(payments, paymentMethods || [], defBcv);
-    }, [payments, bcvRate, paymentMethods, applyIVA]);
-
-    const totalPaidInUSD = totalPaidUSD;
-    const remainingAmountInUSD = Number((totalToPayWithIVA - totalPaidInUSD).toFixed(2));
-    // -------------------------------------------------------------------------------
-
-    useEffect(() => {
-        if (totalToPayInNewMoney > 0 && payments.length === 1) {
-            // Busca el primer método USD disponible
-            const defaultUsdMethod = (paymentMethods || []).find((m: any) => m.currency === 'USD') || { code: 'CASH_USD', currency: 'USD' };
-            setPayments([{
-              method: defaultUsdMethod.code,
-              amount: totalToPayInNewMoney.toFixed(2),
-              currency: 'USD'
-            }]);
-        } else if (totalToPayInNewMoney === 0) {
-          const first = (paymentMethods && paymentMethods[0]) || { code: '', currency: 'USD' };
-          setPayments([{ method: first.code, amount: '', currency: first.currency }]);
-        }
-    }, [totalToPayInNewMoney, paymentMethods]);
-
-    useEffect(() => {
-        if (inputValue === '' || !open) { setOptions([]); return; }
-        setLoadingSearch(true);
-        const timer = setTimeout(async () => {
-            try {
-                const response = await searchClients(inputValue);
-                setOptions(response.data);
-            } finally {
-                setLoadingSearch(false);
-            }
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [inputValue, open]);
-
-    const handleInvoiceSelection = (invoice: any, isChecked: boolean) => {
-        setSelectedInvoices(prev => isChecked ? [...prev, invoice] : prev.filter(inv => inv.id !== invoice.id));
-    };
-
-    const handlePaymentChange = (index: number, field: keyof PaymentState, value: any) => {
-        // SOLUCIÓN DEFINITIVA: Actualización funcional del estado para evitar stale closures
-        setPayments(prevPayments => {
-            // 1. EXTRACCIÓN REACTIVA: Obtener valores frescos del store en cada ejecución
-            const freshBcvRate = Number(bcvRate) || 36.5;
-            const freshPaymentMethods = paymentMethods || [];
-            
-            // 2. INMUTABILIDAD ESTRICTA: Crear una nueva copia del array
-            const updatedPayments = [...prevPayments];
-            const currentPayment = updatedPayments[index];
-
-            if (field === 'method') {
-                const newMethodCode = value as string;
-                const selectedMethod = freshPaymentMethods.find((m: any) => m.code === newMethodCode);
-                const selectedCurrency = selectedMethod?.currency || 'USD';
-                
-                // 3. CÁLCULO A PRUEBA DE FALLOS: Recalcular totales con valores frescos
-                const otherPayments = updatedPayments.filter((_, i) => i !== index);
-                const { totalPaidUSD: otherPaidUSD } = computePaidAndTotals(
-                    otherPayments as PaymentState[], 
-                    freshPaymentMethods, 
-                    freshBcvRate
-                );
-                
-                // RECALCULAR totalToPayWithIVA con valores frescos para evitar stale closure
-                // Usamos los valores actuales de totalToPayInNewMoney y usdPaymentTotal
-                const currentUsdPaymentTotal = otherPayments
-                    .filter(p => p.currency === 'USD')
-                    .reduce((sum, p) => sum + parseAmount(p.amount), 0);
-                
-                // FASE 5: Usar IVA_THRESHOLD dinámico
-                const shouldApplyIVA = totalToPayInNewMoney > 0 
-                    ? (currentUsdPaymentTotal / totalToPayInNewMoney) < IVA_THRESHOLD
-                    : false;
-                
-                let freshTotalToPayWithIVA = totalToPayInNewMoney;
-                if (shouldApplyIVA) {
-                    const vesPortionBase = Math.max(0, totalToPayInNewMoney - currentUsdPaymentTotal);
-                    // FASE 5: Usar IVA_RATE dinámico
-                    const ivaOnVesPortion = vesPortionBase * IVA_RATE;
-                    freshTotalToPayWithIVA = totalToPayInNewMoney + ivaOnVesPortion;
-                }
-                
-                const remainingUSDForThis = Math.max(0, freshTotalToPayWithIVA - otherPaidUSD);
-
-                // 4. CREACIÓN DE OBJETO NUEVO (no mutación): Crear pago completamente nuevo
-                if (selectedCurrency === 'VES') {
-                    const calculatedAmount = remainingUSDForThis * freshBcvRate;
-                    // FALLBACK para NaN o valores inválidos
-                    const finalAmount = Number.isFinite(calculatedAmount) && calculatedAmount > 0
-                        ? calculatedAmount.toFixed(2) 
-                        : '';
-
-                    updatedPayments[index] = {
-                        ...currentPayment,
-                        method: newMethodCode,
-                        currency: selectedCurrency,
-                        bcvRate: freshBcvRate,
-                        amount: finalAmount
-                    };
-                } else {
-                    const finalAmount = remainingUSDForThis > 0 
-                        ? remainingUSDForThis.toFixed(2) 
-                        : '';
-
-                    updatedPayments[index] = {
-                        ...currentPayment,
-                        method: newMethodCode,
-                        currency: selectedCurrency,
-                        bcvRate: undefined,
-                        amount: finalAmount
-                    };
-                }
-            }
-
-            if (field === 'amount') {
-                const freshBcvRate = Number(bcvRate) || 36.5;
-                
-                // Crear nuevo objeto de pago con el monto actualizado
-                updatedPayments[index] = {
-                    ...currentPayment,
-                    amount: value,
-                    // Asegurar bcvRate si es VES
-                    bcvRate: currentPayment.currency === 'VES' 
-                        ? (currentPayment.bcvRate || freshBcvRate)
-                        : currentPayment.bcvRate
-                };
-            }
-
-            return updatedPayments;
+    if (selectedClient) {
+      getUnpaidInvoices(selectedClient.mks_id)
+        .then(res => setUnpaidInvoices(res.data || []))
+        .catch(err => {
+          if (err?.response?.data?.message) {
+            toast.error(err.response.data.message);
+          } else {
+            toast.error('Error al buscar facturas.');
+          }
+          setUnpaidInvoices([]);
         });
-    };
 
-    const addPayment = () => {
-        const firstMethod = (paymentMethods && paymentMethods[0]) || null;
-        const defaultMethodCode = firstMethod ? firstMethod.code : '';
-        const defaultCurrency = firstMethod ? firstMethod.currency : 'USD';
-        const defaultUsd = remainingAmountInUSD > 0.01 ? remainingAmountInUSD.toFixed(2) : '';
-        setPayments([...payments, { method: defaultMethodCode, amount: defaultCurrency === 'USD' ? defaultUsd : (Number(defaultUsd) * (Number(bcvRate)||36.5)).toFixed(2), currency: defaultCurrency, bcvRate: defaultCurrency === 'VES' ? (Number(bcvRate)||36.5) : undefined }]);
-    };
+      getAvailableAbonos(selectedClient.mks_id)
+        .then(res => setAvailableAbonos(res.data || []))
+        .catch(err => {
+          console.error('Error al buscar abonos:', err);
+          setAvailableAbonos([]);
+        });
+    }
+  }, [selectedClient]);
 
-    const removePayment = (index: number) => setPayments(payments.filter((_, i) => i !== index));
-
-    const resetForm = () => {
-        setSelectedClient(null);
-        setInputValue('');
-        setAvailableAbonos([]);
-        setSelectedAbonos([]);
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoadingSubmit(true);
-        const finalPayments = payments.filter(p => Number(p.amount) > 0.01).map(p => ({
-            method: p.method, amount: Number(p.amount), bcvRate: p.bcvRate ? Number(p.bcvRate) : undefined,
-        }));
-        const payload = { 
-            invoiceIds: selectedInvoices.map(inv => inv.id), 
-            payments: finalPayments,
-            appliedAbonoIds: selectedAbonos.map(abn => abn.id)
-        };
-        try {
-            await addTransaction(payload as any);
-            resetForm();
-        } finally {
-            setLoadingSubmit(false);
-        }
-    };
-
-    useEffect(() => {
-        // si store no tiene métodos aún, cargar
-        if (!paymentMethods || paymentMethods.length === 0) {
-            fetchPaymentMethods().catch(() => {});
-        }
-    }, [paymentMethods, fetchPaymentMethods]);
-
-    // Inicializar el primer método cuando los métodos de pago estén disponibles
-    useEffect(() => {
-      if (paymentMethods && paymentMethods.length > 0 && payments.length === 1 && !payments[0].method) {
-        const first = paymentMethods[0];
-        setPayments([{ method: first.code, amount: '' , currency: first.currency }]);
+  // Búsqueda de clientes con debounce
+  useEffect(() => {
+    if (inputValue === '' || !open) {
+      setOptions([]);
+      return;
+    }
+    setLoadingSearch(true);
+    const timer = setTimeout(async () => {
+      try {
+        const response = await searchClients(inputValue);
+        setOptions(response.data);
+      } finally {
+        setLoadingSearch(false);
       }
-      // eslint-disable-next-line
-    }, [paymentMethods]);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [inputValue, open]);
 
-    return (
-        <Box component="form" onSubmit={handleSubmit}>
-            <Autocomplete
-                open={open}
-                onOpen={() => setOpen(true)}
-                onClose={() => setOpen(false)}
-                options={options}
-                loading={loadingSearch}
-                filterOptions={(x) => x}
-                getOptionLabel={(option) => `${option.name} - ${option.id_number}` || ""}
-                isOptionEqualToValue={(option, value) => option.mks_id === value.mks_id}
-                onInputChange={(_, newInputValue) => setInputValue(newInputValue)}
-                onChange={(_, newValue) => setSelectedClient(newValue)}
-                value={selectedClient}
-                renderInput={(params) => (
-                    <TextField
-                        {...params}
-                        label="1. Buscar Cliente"
-                        InputProps={{
-                            ...params.InputProps,
-                            endAdornment: (
-                                <>
-                                    {loadingSearch ? <CircularProgress size={20} /> : null}
-                                    {params.InputProps.endAdornment}
-                                </>
-                            ),
-                        }}
-                    />
-                )}
-                sx={{ mb: 2 }}
-            />
-            
-            {/* SECCIÓN DE FACTURAS */}
-            {unpaidInvoices.length > 0 && (
-                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    <Typography>2. Seleccionar Facturas Pendientes:</Typography>
-                    {unpaidInvoices.map(inv => (
-                        <FormControlLabel
-                            key={inv.id}
-                            control={<Checkbox onChange={(e) => handleInvoiceSelection(inv, e.target.checked)} />}
-                            label={`Factura #${inv.mks_invoice_number} - $${Number(inv.amount).toFixed(2)}`}
-                        />
-                    ))}
-                </Paper>
-            )}
+  // Cargar métodos de pago si no existen
+  useEffect(() => {
+    if (!paymentMethods || paymentMethods.length === 0) {
+      fetchPaymentMethods().catch(() => {});
+    }
+  }, [paymentMethods, fetchPaymentMethods]);
 
-            {/* --- NUEVA SECCIÓN DE ABONOS --- */}
-            {availableAbonos.length > 0 && (
-                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'success.main' }}>
-                    <Typography color="success.main">Abonos Disponibles:</Typography>
-                    {availableAbonos.map(abn => (
-                        <FormControlLabel
-                            key={abn.id}
-                            control={<Checkbox onChange={(e) => handleAbonoSelection(abn, e.target.checked)} color="success" />}
-                            label={`Abono de $${Number(abn.amount).toFixed(2)} del ${new Date(abn.createdAt).toLocaleDateString()}`}
-                        />
-                    ))}
-                </Paper>
-            )}
-
-            {selectedInvoices.length > 0 && (
-                <>
-                    <Typography>Total Facturas: ${totalToPay.toFixed(2)}</Typography>
-                    <Typography color="success.main">Crédito por Abonos: -${totalAbonoCredit.toFixed(2)}</Typography>
-                    <Typography variant="h5" color="primary" gutterBottom>
-                        Total a Cobrar Hoy: ${totalToPayInNewMoney.toFixed(2)}
-                    </Typography>
-
-                    <Stack spacing={2} sx={{ my: 2 }}>
-                        {payments.map((p, index) => (
-                            <Stack direction="row" spacing={1} key={index} alignItems="center">
-                                <FormControl size="small" sx={{ flex: 1, minWidth: 150 }}>
-                                    <InputLabel>Método</InputLabel>
-                                    <Select value={p.method} label="Método" onChange={(e) => handlePaymentChange(index, 'method', e.target.value)}>
-                                        {(paymentMethods || []).map((method: any) => (
-                                            <MenuItem key={method.code} value={method.code}>
-                                                {method.name}
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                                <TextField 
-                                    sx={{ flex: 1 }} 
-                                    type="number" 
-                                    inputProps={{ step: "0.01" }} 
-                                    label="Monto" 
-                                    size="small" 
-                                    value={p.amount || ''} 
-                                    onChange={(e) => handlePaymentChange(index, 'amount', e.target.value)} 
-                                    required 
-                                />
-                                {p.currency === 'VES' && <TextField sx={{ flex: 0.8 }} type="number" label="Tasa BCV" size="small" value={p.bcvRate || ''} InputProps={{ readOnly: true }} />}
-                                <IconButton onClick={() => removePayment(index)} color="warning"><DeleteOutlineIcon /></IconButton>
-                            </Stack>
-                        ))}
-                    </Stack>
-                    <Button startIcon={<AddCircleOutlineIcon />} onClick={addPayment}>Añadir Método de Pago</Button>
-                    <Box sx={{ mt: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>
-                        <Typography variant="body2">Total Base: ${totalToPay.toFixed(2)}</Typography>
-                        {/* FASE 5: Mostrar IVA dinámico */}
-                        {applyIVA && <Typography color="warning.main" variant="body2">Se aplica IVA ({(IVA_RATE * 100).toFixed(0)}%)</Typography>}
-                        <Typography variant="h6">Total a Pagar (calculado): ${totalToPayWithIVA.toFixed(2)}</Typography>
-                        <Divider sx={{ my: 1 }} />
-                        <Typography>Pagado en USD: ${usdPaid.toFixed(2)}</Typography>
-                        <Typography>Total Ingresado (Equivalente USD): ${totalPaidInUSD.toFixed(2)}</Typography>
-                        <Typography color={Math.abs(remainingAmountInUSD) > 0.01 ? 'error' : 'success.main'} fontWeight="bold">
-                            Monto Restante (Base USD): ${remainingAmountInUSD.toFixed(2)}
-                        </Typography>
-                    </Box>
-                    <Button type="submit" variant="contained" fullWidth sx={{ mt: 2 }} disabled={loadingSubmit || Math.abs(remainingAmountInUSD) > 0.01}>
-                        {loadingSubmit ? <CircularProgress size={24} /> : 'Guardar Pago'}
-                    </Button>
-                </>
-            )}
-        </Box>
+  // Handlers
+  const handleInvoiceSelection = (invoice: any, isChecked: boolean) => {
+    setSelectedInvoices(prev => 
+      isChecked ? [...prev, invoice] : prev.filter(inv => inv.id !== invoice.id)
     );
+  };
+
+  const handleAbonoSelection = (abono: any, isChecked: boolean) => {
+    setSelectedAbonos(prev => 
+      isChecked ? [...prev, abono] : prev.filter(abn => abn.id !== abono.id)
+    );
+  };
+
+  // FASE 3: Handler para confirmar pago desde el modal
+  const handlePaymentConfirm = (payment: PaymentEntry) => {
+    setPayments(prev => [...prev, payment]);
+    setPaymentModalOpen(false);
+  };
+
+  // FASE 3: Handler para eliminar un pago
+  const handleRemovePayment = (index: number) => {
+    setPayments(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Cálculos
+  const totalToPay = useMemo(
+    () => selectedInvoices.reduce((sum, inv) => sum + Number(inv.amount), 0),
+    [selectedInvoices]
+  );
+
+  const totalAbonoCredit = useMemo(
+    () => selectedAbonos.reduce((sum, abn) => sum + Number(abn.amount), 0),
+    [selectedAbonos]
+  );
+
+  const totalToPayInNewMoney = totalToPay - totalAbonoCredit;
+
+  // FASE 5: Usar hook custom para cálculos
+  const {
+    totalPaidUSD,
+    usdPaymentTotal,
+    applyIVA,
+    totalToPayWithIVA,
+    remainingAmountInUSD,
+    IVA_RATE
+  } = usePaymentCalculations({
+    payments,
+    totalToPay: totalToPayInNewMoney
+  });
+
+  // Reset form
+  const resetForm = () => {
+    setSelectedClient(null);
+    setInputValue('');
+    setAvailableAbonos([]);
+    setSelectedAbonos([]);
+    setPayments([]);
+  };
+
+  // Submit
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoadingSubmit(true);
+    
+    // FASE 3: Convertir PaymentEntry[] a formato del backend
+    const finalPayments = payments.map(p => ({
+      method: p.method,
+      amount: p.amount,
+      bcvRate: p.bcvRate,
+      reference: p.reference
+    }));
+    
+    const payload = {
+      invoiceIds: selectedInvoices.map(inv => inv.id),
+      payments: finalPayments,
+      appliedAbonoIds: selectedAbonos.map(abn => abn.id)
+    };
+    
+    try {
+      await addTransaction(payload as any);
+      resetForm();
+      // Disparar evento para actualizar Dashboard
+      window.dispatchEvent(new CustomEvent('transactionAdded'));
+    } finally {
+      setLoadingSubmit(false);
+    }
+  };
+
+  return (
+    <Box component="form" onSubmit={handleSubmit}>
+      {/* Búsqueda de Cliente */}
+      <Paper 
+        sx={{ 
+          p: 2,  // FASE 1: Reducido de 3 a 2
+          mb: 3, 
+          backgroundColor: '#1e293b',
+          borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+          border: '1px solid rgba(255,255,255,0.1)'
+        }}
+        elevation={0}  // FASE 1: Sin sombra
+      >
+        <Typography variant="h6" sx={{ mb: 2, color: '#cbd5e1' }}>
+          1. Buscar Cliente
+        </Typography>
+        <Autocomplete
+          open={open}
+          onOpen={() => setOpen(true)}
+          onClose={() => setOpen(false)}
+          options={options}
+          loading={loadingSearch}
+          filterOptions={(x) => x}
+          getOptionLabel={(option) => `${option.name} - ${option.id_number}` || ""}
+          isOptionEqualToValue={(option, value) => option.mks_id === value.mks_id}
+          onInputChange={(_, newInputValue) => setInputValue(newInputValue)}
+          onChange={(_, newValue) => setSelectedClient(newValue)}
+          value={selectedClient}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              placeholder="Nombre o cédula..."
+              InputProps={{
+                ...params.InputProps,
+                endAdornment: (
+                  <>
+                    {loadingSearch ? <CircularProgress size={20} /> : null}
+                    {params.InputProps.endAdornment}
+                  </>
+                ),
+              }}
+              sx={{
+                '& .MuiInputBase-root': {
+                  backgroundColor: '#0f172a',
+                  color: '#fff'
+                }
+              }}
+            />
+          )}
+        />
+      </Paper>
+
+      {/* Sección de Facturas */}
+      {unpaidInvoices.length > 0 && (
+        <Paper 
+          elevation={0}  // FASE 1
+          sx={{ 
+            p: 2,  // FASE 1: Reducido de 3 a 2
+            mb: 3, 
+            backgroundColor: '#1e293b',
+            borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+            border: '1px solid rgba(255,255,255,0.1)'
+          }}
+        >
+          <Typography variant="h6" sx={{ mb: 2, color: '#cbd5e1' }}>
+            2. Seleccionar Facturas Pendientes
+          </Typography>
+          <Stack spacing={1}>
+            {unpaidInvoices.map(inv => (
+              <FormControlLabel
+                key={inv.id}
+                control={
+                  <Checkbox 
+                    onChange={(e) => handleInvoiceSelection(inv, e.target.checked)}
+                    sx={{ color: '#60a5fa' }}
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <Typography sx={{ color: '#fff' }}>
+                      Factura #{inv.mks_invoice_number}
+                    </Typography>
+                    <Typography sx={{ color: '#4ade80', fontWeight: 600 }}>
+                      ${Number(inv.amount).toFixed(2)}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ 
+                  m: 0,
+                  p: 1,  // FASE 1: Reducido de 1.5 a 1
+                  backgroundColor: '#0f172a',
+                  borderRadius: 0.5,  // FASE 1: Reducido de 2 a 0.5
+                  '&:hover': {
+                    backgroundColor: '#1a2332'
+                  }
+                }}
+              />
+            ))}
+          </Stack>
+        </Paper>
+      )}
+
+      {/* Sección de Abonos */}
+      {availableAbonos.length > 0 && (
+        <Paper 
+          elevation={0}  // FASE 1
+          sx={{ 
+            p: 2,  // FASE 1: Reducido de 3 a 2
+            mb: 3, 
+            backgroundColor: '#1e293b',
+            borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+            border: '2px solid #4ade80'
+          }}
+        >
+          <Typography variant="h6" sx={{ mb: 2, color: '#4ade80' }}>
+            Abonos Disponibles
+          </Typography>
+          <Stack spacing={1}>
+            {availableAbonos.map(abn => (
+              <FormControlLabel
+                key={abn.id}
+                control={
+                  <Checkbox 
+                    onChange={(e) => handleAbonoSelection(abn, e.target.checked)}
+                    sx={{ color: '#4ade80' }}
+                  />
+                }
+                label={
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <Typography sx={{ color: '#fff' }}>
+                      {new Date(abn.createdAt).toLocaleDateString()}
+                    </Typography>
+                    <Typography sx={{ color: '#4ade80', fontWeight: 600 }}>
+                      ${Number(abn.amount).toFixed(2)}
+                    </Typography>
+                  </Box>
+                }
+                sx={{ 
+                  m: 0,
+                  p: 1,  // FASE 1: Reducido de 1.5 a 1
+                  backgroundColor: 'rgba(74,222,128,0.1)',
+                  borderRadius: 0.5  // FASE 1: Reducido de 2 a 0.5
+                }}
+              />
+            ))}
+          </Stack>
+        </Paper>
+      )}
+
+      {/* Sección de Totales y Pagos */}
+      {selectedInvoices.length > 0 && (
+        <>
+          {/* Resumen de Montos */}
+          <Paper 
+            elevation={0}  // FASE 1
+            sx={{ 
+              p: 2,  // FASE 1: Reducido de 3 a 2
+              mb: 3, 
+              backgroundColor: '#0f172a',
+              borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+              border: '2px solid #4ade80'
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography sx={{ color: '#94a3b8' }}>Total Facturas:</Typography>
+              <Typography sx={{ color: '#fff', fontWeight: 600 }}>
+                ${totalToPay.toFixed(2)}
+              </Typography>
+            </Box>
+            {totalAbonoCredit > 0 && (
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography sx={{ color: '#4ade80' }}>Crédito por Abonos:</Typography>
+                <Typography sx={{ color: '#4ade80', fontWeight: 600 }}>
+                  -${totalAbonoCredit.toFixed(2)}
+                </Typography>
+              </Box>
+            )}
+            <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.2)' }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700 }}>
+                Total a Cobrar Hoy:
+              </Typography>
+              <Typography variant="h5" sx={{ color: '#4ade80', fontWeight: 700 }}>
+                ${totalToPayInNewMoney.toFixed(2)}
+              </Typography>
+            </Box>
+            
+            {/* Badge de IVA */}
+            {applyIVA && (
+              <Box sx={{ mt: 2, p: 1.5, backgroundColor: '#fb923c', borderRadius: 0.5 }}>  {/* FASE 1: p: 2 → 1.5, borderRadius: 2 → 0.5 */}
+                <Typography sx={{ color: '#000', fontWeight: 600, fontSize: '0.9rem' }}>
+                  ⚠️ Se aplica IVA ({(IVA_RATE * 100).toFixed(0)}%) a la porción en VES
+                </Typography>
+                <Typography sx={{ color: '#000', fontSize: '0.85rem', mt: 0.5 }}>
+                  Total con IVA: ${totalToPayWithIVA.toFixed(2)}
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+
+          {/* FASE 3: Lista de Pagos Agregados */}
+          {payments.length > 0 && (
+            <Paper 
+              elevation={0}  // FASE 1
+              sx={{ 
+                p: 2,  // FASE 1: Reducido de 3 a 2
+                mb: 3, 
+                backgroundColor: '#1e293b',
+                borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+                border: '1px solid rgba(255,255,255,0.1)'
+              }}
+            >
+              <Typography variant="h6" sx={{ mb: 2, color: '#cbd5e1' }}>
+                Pagos Agregados
+              </Typography>
+          <Stack spacing={2}>
+            {/* FASE 4: Keys únicas para evitar warnings de React */}
+            {payments.map((payment, index) => (
+              <PaymentCard
+                key={`payment-${payment.method}-${index}-${payment.amount}`}
+                payment={payment}
+                methodName={paymentMethods?.find(m => m.code === payment.method)?.name}
+                onRemove={() => handleRemovePayment(index)}
+              />
+            ))}
+          </Stack>
+            </Paper>
+          )}
+
+          {/* FASE 3: Botón Agregar Pago */}
+          <Button
+            fullWidth
+            variant="outlined"
+            size="large"
+            startIcon={<AddCircleOutlineIcon />}
+            onClick={() => setPaymentModalOpen(true)}
+            sx={{
+              mb: 3,
+              borderColor: '#4ade80',
+              color: '#4ade80',
+              backgroundColor: 'rgba(74,222,128,0.1)',
+              borderWidth: 2,
+              borderStyle: 'dashed',
+              py: 2,
+              '&:hover': {
+                borderColor: '#22c55e',
+                backgroundColor: 'rgba(74,222,128,0.2)',
+                borderWidth: 2
+              }
+            }}
+          >
+            Agregar Pago
+          </Button>
+
+          {/* Resumen Final y Total Restante */}
+          <Paper 
+            elevation={0}  // FASE 1
+            sx={{ 
+              p: 2,  // FASE 1: Reducido de 3 a 2
+              mb: 3, 
+              backgroundColor: remainingAmountInUSD <= 0.01 ? '#0f172a' : '#1e293b',
+              borderRadius: 1,  // FASE 1: Reducido de 3 a 1
+              border: `2px solid ${remainingAmountInUSD <= 0.01 ? '#4ade80' : '#fb923c'}`
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Typography variant="h6" sx={{ color: '#cbd5e1' }}>
+                Total Pagado:
+              </Typography>
+              <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700 }}>
+                ${totalPaidUSD.toFixed(2)}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="h6" sx={{ 
+                color: remainingAmountInUSD <= 0.01 ? '#4ade80' : '#fb923c',
+                fontWeight: 700
+              }}>
+                {remainingAmountInUSD <= 0.01 ? 'Cuadre Exacto ✓' : 'Restante:'}
+              </Typography>
+              <Typography variant="h5" sx={{ 
+                color: remainingAmountInUSD <= 0.01 ? '#4ade80' : '#fb923c',
+                fontWeight: 700
+              }}>
+                ${Math.abs(remainingAmountInUSD).toFixed(2)}
+                {remainingAmountInUSD < 0 && ' (Sobra)'}
+              </Typography>
+            </Box>
+          </Paper>
+
+          {/* Botón Guardar */}
+          <Button 
+            type="submit" 
+            variant="contained" 
+            fullWidth 
+            size="large"
+            disabled={loadingSubmit || Math.abs(remainingAmountInUSD) > 0.01}
+            sx={{
+              py: 2,
+              backgroundColor: '#4ade80',
+              color: '#000',
+              fontWeight: 700,
+              fontSize: '1.1rem',
+              '&:hover': {
+                backgroundColor: '#22c55e'
+              },
+              '&:disabled': {
+                backgroundColor: '#334155',
+                color: '#64748b'
+              }
+            }}
+          >
+            {loadingSubmit ? <CircularProgress size={24} sx={{ color: '#64748b' }} /> : 'Guardar Pago'}
+          </Button>
+        </>
+      )}
+
+      {/* FASE 3: Payment Entry Modal */}
+      <PaymentEntryModal
+        open={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+        onConfirm={handlePaymentConfirm}
+        remainingAmount={remainingAmountInUSD}
+        baseCurrency="USD"
+        availableMethods={paymentMethods || []}
+        totalBase={totalToPayInNewMoney}        // FASE 4: Monto base sin IVA
+        includesIVA={applyIVA}                   // FASE 4: Indica si remainingAmount incluye IVA
+      />
+    </Box>
+  );
 };

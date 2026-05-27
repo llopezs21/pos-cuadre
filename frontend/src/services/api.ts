@@ -2,7 +2,8 @@ import axios from 'axios';
 import { useAppStore } from '../store'; // Importa el store
 
 // Vite accede a las variables de entorno a través de `import.meta.env`
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+// Fallback a localhost:4000/api si no hay variable de entorno definida
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -126,9 +127,9 @@ export const syncClientsFile = (file: File) => {
   });
 };
 
-export const searchClients = (query: string) => apiClient.get(`/search/clients?query=${query}`);
-export const getUnpaidInvoices = (clientMksId: number) => apiClient.get(`/search/clients/${clientMksId}/unpaid-invoices`);
-export const deleteTransaction = (transactionId: string) => apiClient.delete(`/transactions/${transactionId}`);
+export const searchClients = (query: string) => apiClient.get(`/search/clients?query=${query}`);  // Corregido: sin /api/
+export const getUnpaidInvoices = (clientMksId: number) => apiClient.get(`/search/clients/${clientMksId}/unpaid-invoices`);  // Corregido: sin /api/
+export const deleteTransaction = (transactionId: string) => apiClient.delete(`/transactions/${transactionId}`);  // Corregido: sin /api/
 export const createAbono = (data: AbonoData) => {
   return apiClient.post('/abonos', data);
 };
@@ -164,7 +165,7 @@ export const getDailyBcvRate = async (): Promise<number> => {
   const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
 
   try {
-    // Llama al endpoint del backend (que usa bcvService.js)
+    // Corregido: sin /api/ (el baseURL ya lo incluye)
     const response = await apiClient.get(`/bcv/by-date?date=${today}`);
 
     if (response.data?.success && response.data?.rate) {
@@ -173,7 +174,7 @@ export const getDailyBcvRate = async (): Promise<number> => {
     }
 
     // Fallback a 'latest' si 'by-date' falla
-    const latestResp = await apiClient.get('/api/bcv/latest');
+    const latestResp = await apiClient.get('/bcv/latest');
     if (latestResp.data?.success && latestResp.data?.rate) {
        const rate = parseFloat(latestResp.data.rate);
        if (!isNaN(rate) && rate > 0) return rate;
@@ -193,7 +194,7 @@ export const getDailyBcvRate = async (): Promise<number> => {
 export const getBcvRateForFirstOfMonth = async (date?: string): Promise<number> => {
   try {
     const qDate = date || new Date().toISOString().split('T')[0];
-    const resp = await apiClient.get(`/api/bcv/first-of-month?date=${encodeURIComponent(qDate)}`);
+    const resp = await apiClient.get(`/bcv/first-of-month?date=${encodeURIComponent(qDate)}`);  // Corregido: sin /api/
 
     if (resp?.data && (resp.data.rate || resp.data.rate === 0)) {
       const rate = Number(resp.data.rate);

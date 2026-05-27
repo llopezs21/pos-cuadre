@@ -1,46 +1,46 @@
 import { FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 
-interface PaymentMethod {
-  id: number;
-  name: string;
-  code: string;
-  currency: 'USD' | 'VES';
-  is_active?: boolean;
-}
-
 interface PaymentMethodSelectorProps {
   value: string;
-  paymentMethods: PaymentMethod[];
   onChange: (methodCode: string) => void;
-  label?: string;
+  methods: Array<{
+    id: number;
+    code: string;
+    name: string;
+    currency: 'USD' | 'VES';
+    is_active?: boolean;
+  }>;
   disabled?: boolean;
 }
 
 /**
- * FASE 4: Componente modular para selección de método de pago
+ * FASE 4: Componente independiente para seleccionar método de pago
  * Responsabilidad: Renderizar exclusivamente el dropdown de métodos disponibles
- * Estado: Recibe el método seleccionado y dispara la inicialización síncrona de tasa
+ * NO contiene lógica matemática, solo renderizado y eventos
  */
 export const PaymentMethodSelector = ({ 
   value, 
-  paymentMethods, 
   onChange, 
-  label = 'Método de Pago',
+  methods, 
   disabled = false 
 }: PaymentMethodSelectorProps) => {
   return (
-    <FormControl size="small" sx={{ flex: 1, minWidth: 150 }} disabled={disabled}>
-      <InputLabel>{label}</InputLabel>
-      <Select 
-        value={value} 
-        label={label} 
+    <FormControl sx={{ flex: 1, minWidth: 200 }} size="small">
+      <InputLabel>Método de Pago</InputLabel>
+      <Select
+        value={value || ''}
+        label="Método de Pago"
         onChange={(e) => onChange(e.target.value as string)}
+        disabled={disabled}
+        required
       >
-        {paymentMethods.map((method) => (
-          <MenuItem key={method.code} value={method.code}>
-            {method.name} ({method.currency})
-          </MenuItem>
-        ))}
+        {methods
+          .filter((m) => m.is_active !== false)
+          .map((method) => (
+            <MenuItem key={method.id} value={method.code}>
+              {method.name} ({method.currency})
+            </MenuItem>
+          ))}
       </Select>
     </FormControl>
   );

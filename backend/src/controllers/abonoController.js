@@ -12,7 +12,7 @@ const { calculatePayment } = calcModule;
 
 // Registra un nuevo abono
 export const createAbono = async (req, res) => {
-    const { client_mks_id, amount, currency, bcv_rate, notes, payment } = req.body;
+    const { client_mks_id, amount, currency, bcv_rate, notes, payment, payments } = req.body; // FASE 1: Agregar 'payments' array
     const { userId } = req.user;
 
     const connection = await pool.getConnection();
@@ -32,62 +32,81 @@ export const createAbono = async (req, res) => {
         }
         const clientName = clients[0].name;
 
-        // --- LÓGICA DE CÁLCULO (movida antes de la inserción) ---
-        let payment_method_id = null;
-        let payment_method_code = null;
-        const providedCode = payment?.payment_method_code || payment?.method || null;
-
-        if (providedCode) {
-          const method = await PaymentMethod.findOne({ where: { code: providedCode } });
-          if (method) {
-            payment_method_id = method.id;
-            payment_method_code = method.code;
-          } else {
-            payment_method_code = providedCode;
-          }
-        }
-
-        const calcInput = {
-          amount: payment?.amount ?? amount,
-          currency: currency || 'USD',
-          payment_method_code: payment_method_code,
-          bcv_rate: bcv_rate ?? payment?.bcvRate ?? null,
-          apply_iva: payment?.apply_iva ?? false,
-          user_id: userId
-        };
-        const calc = await calculatePayment(calcInput);
-        // --- FIN LÓGICA DE CÁLCULO ---
-
         // 2. Insertar el registro del abono (para obtener el ID)
         const abonoQuery = 'INSERT INTO abonos (client_mks_id, amount, currency, bcv_rate, notes, created_at_session_id) VALUES (?, ?, ?, ?, ?, ?)';
-        const [abonoResult] = await connection.query(abonoQuery, [client_mks_id, amount, currency, calc.bcv_rate || bcv_rate || null, notes, sessionId]);
+        const [abonoResult] = await connection.query(abonoQuery, [client_mks_id, amount, currency, bcv_rate || null, notes, sessionId]);
         
-        // ¡LA CLAVE! Obtenemos el ID del abono que acabamos de crear.
         const abonoId = abonoResult.insertId;
 
         // 3. Crear una transacción de tipo 'abono'
         const transactionId = randomUUID();
-        // AÑADIMOS 'external_reference'
         const transactionQuery = 'INSERT INTO transactions (id, clientName, invoiceType, invoiceBaseUSD, notes, sessionId, external_reference) VALUES (?, ?, ?, ?, ?, ?, ?)';
         await connection.query(transactionQuery, [transactionId, clientName, 'abono', amount, notes, sessionId, abonoId]);
 
-        // 4. Insertar el pago
-        const paymentQuery = 'INSERT INTO payments (transactionId, method, amount, bcvRate, payment_method_id, payment_method_code) VALUES (?, ?, ?, ?, ?, ?)';
-        await connection.query(paymentQuery, [
-            transactionId,
-            payment?.method || null,
-            payment?.amount ?? amount,
-            calc.bcv_rate || null,
-            calc.payment_method_id || payment_method_id,
-            calc.payment_method_code || payment_method_code
-        ]);
+        // FASE 1: Insertar múltiples pagos (si existen)
+        // Determinar qué array de pagos usar (nuevo formato 'payments' o fallback a 'payment' singular)
+        const paymentsArray = payments && Array.isArray(payments) && payments.length > 0 
+            ? payments 
+            : (payment ? [payment] : []);
+
+        if (paymentsArray.length === 0) {
+            throw new Error('No se proporcionaron métodos de pago');
+        }
+
+        // Iterar sobre cada pago e insertarlo en la tabla payments
+        for (const paymentItem of paymentsArray) {
+            // Resolver payment_method_id y payment_method_code
+            let payment_method_id = null;
+            let payment_method_code = null;
+            const providedCode = paymentItem.payment_method_code || paymentItem.method || null;
+
+            if (providedCode) {
+                const method = await PaymentMethod.findOne({ where: { code: providedCode } });
+                if (method) {
+                    payment_method_id = method.id;
+                    payment_method_code = method.code;
+                } else {
+                    payment_method_code = providedCode;
+                }
+            }
+
+            // Calcular valores finales usando el servicio de cálculo
+            const calcInput = {
+                amount: paymentItem.amount || 0,
+                currency: paymentItem.currency || currency || 'USD',
+                payment_method_code: payment_method_code,
+                bcv_rate: paymentItem.bcvRate || bcv_rate || null,
+                apply_iva: paymentItem.apply_iva || false,
+                user_id: userId
+            };
+            const calc = await calculatePayment(calcInput);
+
+            // Insertar el pago en la tabla payments
+            const paymentQuery = `INSERT INTO payments 
+                (transactionId, method, amount, bcvRate, payment_method_id, payment_method_code, reference) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            
+            await connection.query(paymentQuery, [
+                transactionId,
+                paymentItem.method || null,
+                paymentItem.amount || 0,
+                calc.bcv_rate || paymentItem.bcvRate || null,
+                calc.payment_method_id || payment_method_id,
+                calc.payment_method_code || payment_method_code,
+                paymentItem.reference || null  // FASE 1: Incluir referencia
+            ]);
+        }
 
         await connection.commit();
-        res.status(201).json({ message: 'Abono registrado exitosamente.', calculation: calc, abonoId: abonoId });
+        res.status(201).json({ 
+            message: 'Abono registrado exitosamente.', 
+            abonoId: abonoId,
+            paymentsCount: paymentsArray.length  // FASE 1: Confirmar cuántos pagos se guardaron
+        });
     } catch (error) {
         await connection.rollback();
         console.error('Error al registrar abono:', error);
-        res.status(500).json({ message: 'Error en el servidor.' });
+        res.status(500).json({ message: 'Error en el servidor.', error: error.message });
     } finally {
         connection.release();
     }

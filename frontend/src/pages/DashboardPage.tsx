@@ -6,7 +6,28 @@ import { TransactionsTable } from '../components/TransactionsTable';
 import { StartSession } from '../components/StartSession';
 import { CloseSessionModal } from '../components/CloseSessionModal';
 import { Sidebar } from '../components/sidebar/Sidebar';
-import { Container, Paper, Stack, Typography, AppBar, Toolbar, Button, Box, ToggleButtonGroup, ToggleButton, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
+import { 
+  Container, 
+  Paper, 
+  Stack, 
+  Typography, 
+  AppBar, 
+  Toolbar, 
+  Button, 
+  Box, 
+  ToggleButtonGroup, 
+  ToggleButton, 
+  Select, 
+  MenuItem, 
+  FormControl, 
+  InputLabel, 
+  CircularProgress,
+  IconButton,
+  Drawer,
+  useMediaQuery,
+  useTheme
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getAllSessions, getTransactionsBySessionId } from '../services/api';
 
@@ -24,10 +45,16 @@ export const DashboardPage = () => {
   const logout = useAppStore(state => state.logout);
   const isSessionOpen = useAppStore(state => state.isSessionOpen);
 
+  // Responsive: detectar móviles
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
   // Estados locales
   const [transactions, setTransactions] = useState<any[]>([]);
   const [summary, setSummary] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
+  // Estado del Sidebar: abierto por defecto en escritorio, cerrado en móviles
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
 
   // Admin: lista de sesiones y sesión seleccionada
   const [adminSessionList, setAdminSessionList] = useState<any[]>([]);
@@ -51,6 +78,11 @@ export const DashboardPage = () => {
     // eslint-disable-next-line
   }, []);
 
+  // Responsive: ajustar estado del sidebar cuando cambie el tamaño de pantalla
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
+
   // HELPER: calcular resumen desde transacciones (frontend)
   const calculateSummaryFromTransactions = (txs: any[]) => {
     // 1. Usar las claves que SummaryView espera
@@ -72,21 +104,21 @@ export const DashboardPage = () => {
 
       (tx.payments || []).forEach((p: any) => {
         const amount = Number(p.amount) || 0;
-        // CORRECCIÓN: normalizar a lowercase para comparación
-        const method = (p.payment_method_code || p.method || '').toString().toLowerCase();
+        // FIX: normalizar a UPPERCASE para consistencia con el resto del sistema
+        const method = (p.payment_method_code || p.method || '').toString().toUpperCase();
 
         // Mapear el código del pago a la clave correcta
         switch (method) {
-          case 'cash_usd':
+          case 'CASH_USD':
             totalsByMethod.totalCashUSD += amount;
             break;
-          case 'cash_ves':
+          case 'CASH_VES':
             totalsByMethod.totalCashVES += amount;
             break;
-          case 'pos_banesco':
+          case 'POS_BANESCO':
             totalsByMethod.totalPosBanesco += amount;
             break;
-          case 'pos_mibanco':
+          case 'POS_MIBANCO':
             totalsByMethod.totalPosMiBanco += amount;
             break;
           default:
@@ -145,20 +177,37 @@ export const DashboardPage = () => {
       return;
     }
 
-    setLoading(true);
-    // CORRECCIÓN: selectedSessionId es string, la API espera number
-    getTransactionsBySessionId(Number(selectedSessionId))
-      .then(resp => {
-        const txs = Array.isArray(resp.data) ? resp.data : [];
-        setTransactions(txs);
-        setSummary(calculateSummaryFromTransactions(txs));
-      })
-      .catch(err => {
-        console.error(`Error fetching data for session ${selectedSessionId}`, err);
-        setTransactions([]);
-        setSummary(null);
-      })
-      .finally(() => setLoading(false));
+    const loadTransactions = () => {
+      setLoading(true);
+      // CORRECCIÓN: selectedSessionId es string, la API espera number
+      getTransactionsBySessionId(Number(selectedSessionId))
+        .then(resp => {
+          const txs = Array.isArray(resp.data) ? resp.data : [];
+          setTransactions(txs);
+          setSummary(calculateSummaryFromTransactions(txs));
+        })
+        .catch(err => {
+          console.error(`Error fetching data for session ${selectedSessionId}`, err);
+          setTransactions([]);
+          setSummary(null);
+        })
+        .finally(() => setLoading(false));
+    };
+
+    loadTransactions();
+
+    // BUG FIX 1: Listener para el evento 'transactionAdded' disparado por InvoicePaymentForm
+    const handleTransactionAdded = () => {
+      console.log('🔄 Evento transactionAdded recibido, recargando transacciones...');
+      loadTransactions();
+    };
+
+    window.addEventListener('transactionAdded', handleTransactionAdded);
+
+    // Cleanup: remover el listener cuando el componente se desmonte o cambie la sesión
+    return () => {
+      window.removeEventListener('transactionAdded', handleTransactionAdded);
+    };
   }, [selectedSessionId]);
 
   // Redirección si no hay usuario
@@ -169,26 +218,32 @@ export const DashboardPage = () => {
   // Filtrado de transacciones por método
   const filteredTransactions = useMemo(() => {
     if (paymentMethodFilter === 'all') return transactions;
-    return transactions.filter(tx => (tx.payments || []).some((p: any) => (p.payment_method_code || p.method) === paymentMethodFilter));
+    return transactions.filter(tx => 
+      (tx.payments || []).some((p: any) => {
+        const method = (p.payment_method_code || p.method || '').toString().toUpperCase();
+        return method === paymentMethodFilter.toUpperCase();
+      })
+    );
   }, [transactions, paymentMethodFilter]);
 
   const filteredTotals = useMemo(() => {
     const totals = { usd: 0, ves: 0, banesco: 0, mibanco: 0 };
     for (const tx of filteredTransactions) {
       for (const payment of tx.payments || []) {
-        const code = payment.payment_method_code || payment.method;
+        // FIX: normalizar a UPPERCASE para consistencia
+        const code = ((payment as any).payment_method_code || payment.method || '').toString().toUpperCase();
         switch (code) {
-          case 'cash_usd': totals.usd += Number(payment.amount || 0); break;
-          case 'cash_ves': totals.ves += Number(payment.amount || 0); break;
-          case 'pos_banesco': totals.banesco += Number(payment.amount || 0); break;
-          case 'pos_mibanco': totals.mibanco += Number(payment.amount || 0); break;
+          case 'CASH_USD': totals.usd += Number(payment.amount || 0); break;
+          case 'CASH_VES': totals.ves += Number(payment.amount || 0); break;
+          case 'POS_BANESCO': totals.banesco += Number(payment.amount || 0); break;
+          case 'POS_MIBANCO': totals.mibanco += Number(payment.amount || 0); break;
         }
       }
     }
     return totals;
   }, [filteredTransactions]);
 
-  // UI - FASE 3: Nuevo diseño con Sidebar
+  // UI - FASE 4: Diseño Responsive con Sidebar
   return (
     <>
       {!isSessionOpen ? (
@@ -196,41 +251,77 @@ export const DashboardPage = () => {
           <StartSession />
         </Container>
       ) : (
-        <Box sx={{ display: 'table', width: '100%', minHeight: '100vh', tableLayout: 'fixed' }}>
-          {/* PANEL IZQUIERDO: SIDEBAR ESTÁTICO */}
-          <Box sx={{ display: 'table-cell', width: '320px', verticalAlign: 'top' }}>
-            <Sidebar 
-              summary={summary} 
-              onCloseSession={() => setCloseModalOpen(true)}
-            />
-          </Box>
+        <Box sx={{ display: 'flex', minHeight: '100vh', backgroundColor: '#0f172a' }}>
+          {/* SIDEBAR: Drawer en móviles, Box fijo en escritorio */}
+          {isMobile ? (
+            <Drawer
+              variant="temporary"
+              open={sidebarOpen}
+              onClose={() => setSidebarOpen(false)}
+              ModalProps={{ keepMounted: true }} // Mejor performance en móviles
+              sx={{
+                '& .MuiDrawer-paper': { 
+                  width: 320, 
+                  boxSizing: 'border-box',
+                  backgroundColor: '#1e293b'
+                }
+              }}
+            >
+              <Sidebar 
+                summary={summary} 
+                onCloseSession={() => setCloseModalOpen(true)}
+                isMobile={isMobile}
+                onClose={() => setSidebarOpen(false)}
+              />
+            </Drawer>
+          ) : (
+            sidebarOpen && (
+              <Box sx={{ width: 320, flexShrink: 0 }}>
+                <Sidebar 
+                  summary={summary} 
+                  onCloseSession={() => setCloseModalOpen(true)}
+                  isMobile={false}
+                />
+              </Box>
+            )
+          )}
 
-          {/* PANEL DERECHO: CONTENIDO OPERATIVO FLUIDO */}
-          <Box sx={{ display: 'table-cell', verticalAlign: 'top', backgroundColor: '#0f172a' }}>
-            {/* Top Bar con navegación de admin */}
+          {/* CONTENIDO PRINCIPAL: Flexible */}
+          <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+            {/* Top Bar con navegación de admin y botón de menú */}
             <AppBar position="static" color="transparent" elevation={0} sx={{ backgroundColor: '#1e293b', borderBottom: '1px solid #334155' }}>
               <Toolbar sx={{ justifyContent: 'space-between' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  {/* Botón de menú: siempre visible, toggle del sidebar */}
+                  <IconButton
+                    color="inherit"
+                    aria-label="toggle sidebar"
+                    edge="start"
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    sx={{ mr: 2 }}
+                  >
+                    <MenuIcon />
+                  </IconButton>
                   <Typography variant="h6">Dashboard</Typography>
                   {selectedSessionId && (
-                    <Typography variant="body2" sx={{ color: 'secondary.light', fontWeight: 600, border: '1px solid', borderColor: 'secondary.dark', px: 1, borderRadius: 1 }}>
+                    <Typography variant="body2" sx={{ color: 'secondary.light', fontWeight: 600, border: '1px solid', borderColor: 'secondary.dark', px: 1, borderRadius: 1, display: { xs: 'none', sm: 'block' } }}>
                       Viendo Sesión: #{selectedSessionId}
                     </Typography>
                   )}
                 </Box>
-                <Box>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {user?.role === 'admin' && (
                     <>
-                      <Button component={RouterLink} to="/admin/sessions" color="inherit" sx={{ mr: 1 }}>
+                      <Button component={RouterLink} to="/admin/sessions" color="inherit" size="small" sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
                         Ver Sesiones
                       </Button>
-                      <Button component={RouterLink} to="/admin/config" color="inherit" sx={{ mr: 1 }}>
+                      <Button component={RouterLink} to="/admin/config" color="inherit" size="small" sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
                         Configurar Pagos
                       </Button>
-                      <Button component={RouterLink} to="/admin/business-rules" color="inherit" sx={{ mr: 1 }}>
+                      <Button component={RouterLink} to="/admin/business-rules" color="inherit" size="small" sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
                         Reglas de Negocio
                       </Button>
-                      <Button component={RouterLink} to="/admin/sync" color="inherit">
+                      <Button component={RouterLink} to="/admin/sync" color="inherit" size="small">
                         Sincronizar
                       </Button>
                     </>
@@ -240,11 +331,9 @@ export const DashboardPage = () => {
             </AppBar>
 
             {/* Contenido Principal */}
-            <Box sx={{ p: 4 }}>
+            <Box sx={{ p: { xs: 2, sm: 3, md: 4 }, flexGrow: 1, overflow: 'auto' }}>
               <Box sx={{ maxWidth: '1200px', margin: '0 auto' }}>
-                <Typography variant="h3" component="h1" align="center" gutterBottom sx={{ mb: 3, color: '#f1f5f9' }}>
-                  Aplicación de Cuadre de Caja
-                </Typography>
+                {/* FASE 5: Header gigante eliminado para ahorrar espacio vertical */}
 
                 {/* Admin: selector de sesión */}
                 {user?.role === 'admin' && (
@@ -307,10 +396,10 @@ export const DashboardPage = () => {
                       <Typography variant="h6" gutterBottom>Filtrar por Método de Pago</Typography>
                       <ToggleButtonGroup value={paymentMethodFilter} exclusive onChange={(_, v) => v && setPaymentMethodFilter(v)} sx={{ mb: 2 }}>
                         <ToggleButton value="all">Todos</ToggleButton>
-                        <ToggleButton value="cash_usd">Efectivo USD</ToggleButton>
-                        <ToggleButton value="cash_ves">Efectivo VES</ToggleButton>
-                        <ToggleButton value="pos_banesco">Punto Banesco</ToggleButton>
-                        <ToggleButton value="pos_mibanco">Punto Mi Banco</ToggleButton>
+                        <ToggleButton value="CASH_USD">Efectivo USD</ToggleButton>
+                        <ToggleButton value="CASH_VES">Efectivo VES</ToggleButton>
+                        <ToggleButton value="POS_BANESCO">Punto Banesco</ToggleButton>
+                        <ToggleButton value="POS_MIBANCO">Punto Mi Banco</ToggleButton>
                       </ToggleButtonGroup>
 
                       <Box sx={{ display: 'flex', gap: 4, flexWrap: 'wrap', mb: 2, p: 2, backgroundColor: 'action.hover', borderRadius: 1 }}>

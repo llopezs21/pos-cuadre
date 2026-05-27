@@ -63,9 +63,12 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
       // Filtro 1: Por nombre de cliente
       const matchesSearch = tx.clientName.toLowerCase().includes(search.toLowerCase());
       
-      // Filtro 2: Por método de pago
+      // Filtro 2: Por método de pago (FIX: Normalizar a UPPERCASE para comparar)
       const matchesPaymentMethod = selectedPaymentMethod === 'all' 
-        || (Array.isArray(tx.payments) && tx.payments.some(p => p.method === selectedPaymentMethod));
+        || (Array.isArray(tx.payments) && tx.payments.some(p => {
+          const method = (p as any).payment_method_code || p.method || '';
+          return method.toString().toUpperCase() === selectedPaymentMethod.toUpperCase();
+        }));
       
       return matchesSearch && matchesPaymentMethod;
     });
@@ -119,12 +122,12 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
     totalPosMiBanco
   } = summary;
 
-  // Abreviaciones y/o iconos para métodos de pago
+  // Abreviaciones y/o iconos para métodos de pago (FIX: Keys en UPPERCASE)
   const paymentMethodInfo: Record<string, { label: string; icon: React.ReactNode }> = {
-    cash_usd:   { label: 'USD', icon: <AttachMoneyIcon fontSize="small" sx={{ color: '#4caf50' }} /> },
-    cash_ves:   { label: 'VES', icon: <PaidIcon fontSize="small" sx={{ color: '#ffb300' }} /> },
-    pos_banesco: { label: 'BAN', icon: <AccountBalanceIcon fontSize="small" sx={{ color: '#0067ba' }} /> },
-    pos_mibanco: { label: 'R4', icon: <AccountBalanceIcon fontSize="small" sx={{ color: '#ff5101' }} /> },
+    CASH_USD:   { label: 'USD', icon: <AttachMoneyIcon fontSize="small" sx={{ color: '#4caf50' }} /> },
+    CASH_VES:   { label: 'VES', icon: <PaidIcon fontSize="small" sx={{ color: '#ffb300' }} /> },
+    POS_BANESCO: { label: 'BAN', icon: <AccountBalanceIcon fontSize="small" sx={{ color: '#0067ba' }} /> },
+    POS_MIBANCO: { label: 'R4', icon: <AccountBalanceIcon fontSize="small" sx={{ color: '#ff5101' }} /> },
   };
 
   return (
@@ -153,24 +156,24 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
         />
       </Box>
 
-      {/* Filtro por Método de Pago */}
-      <Box sx={{ mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 200, bgcolor: '#1a1d23', borderRadius: 1 }}>
-          <InputLabel sx={{ color: '#90caf9' }}>Filtrar por Método</InputLabel>
+      {/* Filtro por Método de Pago - FIX: Modernizar UI y valores en UPPERCASE */}
+      <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+        <FormControl size="small" sx={{ minWidth: 250, bgcolor: '#1a1d23', borderRadius: 1 }}>
+          <InputLabel sx={{ color: '#90caf9' }}>Filtrar por Método de Pago</InputLabel>
           <Select
             value={selectedPaymentMethod}
             onChange={(e) => setSelectedPaymentMethod(e.target.value)}
-            label="Filtrar por Método"
+            label="Filtrar por Método de Pago"
             sx={{ color: '#fff' }}
           >
-            <MenuItem value="all">Todos los métodos</MenuItem>
-            <MenuItem value="cash_usd">💵 Efectivo USD</MenuItem>
-            <MenuItem value="cash_ves">💰 Efectivo VES</MenuItem>
-            <MenuItem value="pos_banesco">🏦 POS Banesco</MenuItem>
-            <MenuItem value="pos_mibanco">🏦 POS Mi Banco</MenuItem>
+            <MenuItem value="all">✨ Todos los métodos</MenuItem>
+            <MenuItem value="CASH_USD">💵 Efectivo USD</MenuItem>
+            <MenuItem value="CASH_VES">💰 Efectivo VES</MenuItem>
+            <MenuItem value="POS_BANESCO">🏦 POS Banesco</MenuItem>
+            <MenuItem value="POS_MIBANCO">🏦 POS Mi Banco</MenuItem>
           </Select>
         </FormControl>
-      </Box>
+      </Stack>
 
       <TableContainer sx={{ width: '100%', borderRadius: 2 }}>
         <Table stickyHeader size="small" sx={{ minWidth: 800 }}>
@@ -212,14 +215,19 @@ export const TransactionsTable: React.FC<TransactionsTableProps> = ({ transactio
                 </TableCell>
                 <TableCell>
                   <Stack direction="row" spacing={1} flexWrap="wrap">
-                    {tx.payments.map((p, idx) => (
-                      <Box key={idx} display="flex" alignItems="center" sx={{ mr: 1 }}>
-                        {paymentMethodInfo[p.method]?.icon}
-                        <Typography variant="body2" sx={{ ml: 0.5, fontWeight: 500 }}>
-                          {paymentMethodInfo[p.method]?.label}: {Number(p.amount).toFixed(2)}
-                        </Typography>
-                      </Box>
-                    ))}
+                    {tx.payments.map((p, idx) => {
+                      // FIX: Normalizar method a UPPERCASE para acceder al paymentMethodInfo
+                      const paymentAny = p as any;
+                      const methodKey = (paymentAny.payment_method_code || p.method || '').toString().toUpperCase();
+                      return (
+                        <Box key={`${tx.id}-payment-${idx}`} display="flex" alignItems="center" sx={{ mr: 1 }}>  {/* FASE 4: Key única combinando tx.id + idx */}
+                          {paymentMethodInfo[methodKey]?.icon}
+                          <Typography variant="body2" sx={{ ml: 0.5, fontWeight: 500 }}>
+                            {paymentMethodInfo[methodKey]?.label}: {Number(p.amount).toFixed(2)}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
                   </Stack>
                 </TableCell>
                 <TableCell>{new Date(tx.createdAt).toLocaleTimeString()}</TableCell>

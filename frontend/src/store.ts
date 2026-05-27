@@ -35,6 +35,7 @@ interface PaymentMethod {
   generates_commission?: boolean;
   triggers_iva?: boolean; // FASE 3
   is_base_currency?: boolean; // FASE 3
+  is_cash?: boolean; // FASE REESTRUCTURACION: Identifica si es efectivo (requiere calculadora de billetes)
 }
 
 // FASE 3: Interfaz para configuración global
