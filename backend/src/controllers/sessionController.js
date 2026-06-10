@@ -140,7 +140,10 @@ export const closeSession = async (req, res) => {
             console.log('GIE-APP respuesta OK:', gieResp);
         } catch (err) {
             console.error('Fallo sincronización con GIE-APP:', err.response?.data || err.message || err);
-            return res.status(500).json({ message: `Error sincronizando con GIE-APP: ${err.message || err}` });
+            return res.status(500).json({
+                message: `Error sincronizando con GIE-APP: ${err.message || err}`,
+                debug_payload: err.payload ?? null,
+            });
         }
 
         // Si GIE-APP tuvo éxito, cerrar la sesión localmente

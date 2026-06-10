@@ -1,44 +1,16 @@
 import { useState } from 'react';
 import { useAppStore } from '../store';
-import { Container, Typography, Paper, Button, Box, CircularProgress, Alert, Divider, AppBar, Toolbar } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { Link as RouterLink } from 'react-router-dom';
+import { Typography, Paper, Button, Box, CircularProgress, Alert, Divider } from '@mui/material';
 
 export const AdminSyncPage = () => {
-    // Hooks para facturas
     const { uploadInvoicesFile, loading: invoicesLoading, syncResult: invoicesSyncResult, error: invoicesError } = useAppStore();
     const [selectedInvoiceFile, setSelectedInvoiceFile] = useState<File | null>(null);
 
-    // Hooks para clientes
-    const { uploadClientsFile, loading: clientsLoading, clientSyncResult, error: clientsError, user } = useAppStore();
+    const { uploadClientsFile, loading: clientsLoading, clientSyncResult, error: clientsError } = useAppStore();
     const [selectedClientFile, setSelectedClientFile] = useState<File | null>(null);
 
     return (
-        <>
-            <AppBar position="static" color="primary" sx={{ mb: 3 }}>
-                <Toolbar sx={{ justifyContent: 'space-between' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Button
-                            component={RouterLink}
-                            to="/"
-                            color="inherit"
-                            startIcon={<ArrowBackIcon />}
-                            sx={{ textTransform: 'none' }}
-                        >
-                            Volver al Dashboard
-                        </Button>
-                        <Typography variant="h6" component="div">
-                            Panel de Sincronización de Datos
-                        </Typography>
-                    </Box>
-                    {user && (
-                        <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'secondary.light' }}>
-                            Usuario: {user.username}
-                        </Typography>
-                    )}
-                </Toolbar>
-            </AppBar>
-            <Container maxWidth="md" sx={{ mt: 4 }}>
+        <Box sx={{ maxWidth: '900px', margin: '0 auto', width: '100%' }}>
                 {/* --- SECCIÓN PARA SINCRONIZAR FACTURAS --- */}
                 <Paper sx={{ p: 3, mb: 4 }}>
                     <Typography variant="h6" gutterBottom>1. Sincronizar Facturas</Typography>
@@ -106,7 +78,6 @@ mks_id, name, id_number, phone, email`}
                         </Box>
                     </Box>
                 </Paper>
-            </Container>
-        </>
+        </Box>
     );
 };

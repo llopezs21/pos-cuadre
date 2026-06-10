@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
-import { Container, Typography, Accordion, AccordionSummary, AccordionDetails, Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, AppBar, Toolbar, Button, CircularProgress } from '@mui/material';
+import { Typography, Accordion, AccordionSummary, AccordionDetails, Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, CircularProgress } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { Link as RouterLink } from 'react-router-dom';
 import { getTransactionsBySessionId } from '../services/api';
 import { exportSessionToExcel } from '../utils/exportToExcel';
 
@@ -100,7 +98,7 @@ const SessionTransactions = ({ session }: { session: any }) => {
 };
 
 export const AdminSessionsPage = () => {
-    const { sessionsHistory, fetchSessionsHistory, user } = useAppStore();
+    const { sessionsHistory, fetchSessionsHistory } = useAppStore();
     const [openTxSession, setOpenTxSession] = useState<number | null>(null);
 
     useEffect(() => {
@@ -109,31 +107,7 @@ export const AdminSessionsPage = () => {
     }, []);
 
     return (
-        <>
-            <AppBar position="static" color="primary" sx={{ mb: 3 }}>
-                <Toolbar sx={{ justifyContent: 'space-between' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Button
-                            component={RouterLink}
-                            to="/"
-                            color="inherit"
-                            startIcon={<ArrowBackIcon />}
-                            sx={{ textTransform: 'none' }}
-                        >
-                            Volver al Dashboard
-                        </Button>
-                        <Typography variant="h6" component="div">
-                            Historial de Cierres de Caja
-                        </Typography>
-                    </Box>
-                    {user && (
-                        <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'secondary.light' }}>
-                            Usuario: {user.username}
-                        </Typography>
-                    )}
-                </Toolbar>
-            </AppBar>
-            <Container maxWidth="lg" sx={{ mt: 2 }}>
+        <Box sx={{ maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
                 {sessionsHistory.length === 0 && (
                     <Paper sx={{ p: 4, textAlign: 'center', mb: 3 }}>
                         <Typography variant="h6" color="text.secondary">
@@ -197,7 +171,6 @@ export const AdminSessionsPage = () => {
                         </AccordionDetails>
                     </Accordion>
                 ))}
-            </Container>
-        </>
+        </Box>
     );
 };

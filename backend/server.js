@@ -12,8 +12,11 @@ import paymentsRouter from './src/routes/payments.js'; // <-- Nueva línea
 import paymentCalcRouter from './src/routes/paymentCalculator.js'; // <-- Nueva línea
 import bcvRoutes from './src/routes/bcvRoutes.js';
 import paymentConfigRoutes from './src/routes/paymentConfigRoutes.js';
-import userAdminRoutes from './src/routes/userAdminRoutes.js'; // <-- Nueva línea
+import userAdminRoutes from './src/routes/userAdminRoutes.js';
+import userRoutes from './src/routes/userRoutes.js';
 import settingsRoutes from './src/routes/settings.js'; // <-- FASE 1: Rutas de configuración global
+import staffPhonesRoutes from './src/routes/staffPhones.js';
+import rechargesRoutes from './src/routes/recharges.js';
 import { initializeDatabase } from './src/db/init.js'; // <-- NUEVO: Sistema de inicialización
 
 // Configuración inicial
@@ -36,8 +39,11 @@ app.use('/api/payments', paymentsRouter); // <-- Nueva línea
 app.use('/api/payments', paymentCalcRouter); // /api/payments/calculate
 app.use('/api/bcv', bcvRoutes); // <-- Nueva línea
 app.use('/api/payment-configs', paymentConfigRoutes);
-app.use('/api/admin/users', userAdminRoutes); // <-- Nueva línea
+app.use('/api/users', userRoutes);
+app.use('/api/admin/users', userAdminRoutes);
 app.use('/api/settings', settingsRoutes); // <-- FASE 1: Rutas de configuración global
+app.use('/api/staff-phones', staffPhonesRoutes);
+app.use('/api/recharges', rechargesRoutes);
 app.use('/api', transactionRoutes);
 
 

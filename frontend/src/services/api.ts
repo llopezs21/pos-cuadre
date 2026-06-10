@@ -149,6 +149,58 @@ export const getPaymentMethods = () => {
   return apiClient.get('/payment-methods');
 };
 
+export const updatePaymentMethod = (
+  id: number,
+  updates: Partial<{
+    triggers_iva: boolean;
+    is_base_currency: boolean;
+    requires_responsable: boolean;
+    is_cash: boolean;
+    is_active: boolean;
+    name: string;
+    code: string;
+    currency: string;
+  }>
+) => {
+  return apiClient.put(`/payment-methods/${id}`, updates);
+};
+
+export const getGlobalSettings = () => {
+  return apiClient.get('/settings');
+};
+
+export const updateGlobalSettings = (settings: {
+  iva_rate?: number;
+  iva_threshold?: number;
+  reconciliation_tolerance?: number;
+  recharge_commission_percent?: number;
+}) => {
+  return apiClient.put('/settings', settings);
+};
+
+// --- Staff Phones ---
+export const getStaffPhones = () => apiClient.get('/staff-phones');
+
+export const createStaffPhone = (data: { phone_number: string; owner_name: string }) =>
+  apiClient.post('/staff-phones', data);
+
+export const deleteStaffPhone = (id: number) => apiClient.delete(`/staff-phones/${id}`);
+
+// --- Recharges ---
+export const getRechargesBySessionId = (sessionId: number) =>
+  apiClient.get(`/recharges?session_id=${sessionId}`);
+
+export const createRecharge = (data: {
+  phone_number: string;
+  is_staff: boolean;
+  net_amount_bs: number;
+  commission_amount_bs?: number;
+  payment_method?: string;
+  currency?: 'USD' | 'VES';
+  amount_tendered?: number;
+  exchange_rate?: number;
+}) => apiClient.post('/recharges', data);
+
 // --- AÑADIR: obtener todas las sesiones (historial) para admin ---
 export const getAllSessions = () => {
   // Ajusta la ruta si tu servidor expone otra (ej: /sessions/history)
@@ -225,14 +277,27 @@ export const updatePaymentConfig = (data: {
 };
 // --- FIN: API PARA CONFIGURACIÓN --- 
 
-// --- ADMIN USERS API ---
-export const getUsers = () => {
-  return apiClient.get('/admin/users');
-};
+// --- USERS CRUD (admin) ---
+export interface UserPayload {
+  username: string;
+  password?: string;
+  role: 'admin' | 'cashier';
+  is_active?: boolean;
+  gie_app_username?: string | null;
+}
 
-export const updateUserGieUsername = (id: number, gie_app_username: string | null) => {
-  return apiClient.put(`/admin/users/${id}/gie-username`, { gie_app_username });
-};
+export const getUsers = () => apiClient.get('/users');
+
+export const createUser = (data: UserPayload & { password: string }) =>
+  apiClient.post('/users', data);
+
+export const updateUser = (id: number, data: Partial<UserPayload>) =>
+  apiClient.put(`/users/${id}`, data);
+
+export const deleteUser = (id: number) => apiClient.delete(`/users/${id}`);
+
+export const updateUserGieUsername = (id: number, gie_app_username: string | null) =>
+  apiClient.put(`/admin/users/${id}/gie-username`, { gie_app_username });
 
 // --- INTERCEPTOR ---
 // Esto se ejecuta ANTES de cada petición

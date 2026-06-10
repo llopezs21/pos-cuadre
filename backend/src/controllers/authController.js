@@ -32,6 +32,10 @@ export const login = async (req, res) => {
             return res.status(401).send('Usuario o contraseña incorrectos.');
         }
 
+        if (user.is_active === 0 || user.is_active === false) {
+            return res.status(403).json({ message: 'Usuario desactivado. Contacte al administrador.' });
+        }
+
         // Crear el payload del token
         const payload = { userId: user.id, role: user.role };
 

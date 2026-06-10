@@ -1,7 +1,6 @@
 import axios from 'axios';
 import pool from '../db/database.js';
 
-// Cargar modelos CommonJS
 const dbModule = await import('../../models/index.cjs');
 const db = dbModule.default || dbModule;
 
@@ -12,7 +11,6 @@ const GIE_CLIENT_SECRET = process.env.GIE_CLIENT_SECRET;
 let machineToken = null;
 let tokenExpires = new Date(0);
 
-// --- (Función getMachineToken ... déjala como está) ---
 const getMachineToken = async () => {
   if (machineToken && new Date() < tokenExpires) return machineToken;
   try {
@@ -29,13 +27,12 @@ const getMachineToken = async () => {
   }
 };
 
-// --- REEMPLAZO: sendCierreToGieApp (LÓGICA HÍBRIDA) ---
 export const sendCierreToGieApp = async (session, usuarioGieApp) => {
   const sessionId = session.id;
   const connection = await pool.getConnection();
+  let payload = null;
 
   try {
-    // 1. Obtener pagos de la sesión
     const paymentsQuery = `
       SELECT p.payment_method_code, p.method, p.amount
       FROM payments p
@@ -44,7 +41,6 @@ export const sendCierreToGieApp = async (session, usuarioGieApp) => {
     `;
     const [allPayments] = await connection.query(paymentsQuery, [sessionId]);
 
-    // 2. Agrupar por código
     const paymentsByCode = allPayments.reduce((acc, p) => {
       const code = p.payment_method_code || p.method || 'UNKNOWN';
       if (!acc[code]) acc[code] = { total_amount: 0, method_code: code };
@@ -52,7 +48,6 @@ export const sendCierreToGieApp = async (session, usuarioGieApp) => {
       return acc;
     }, {});
 
-    // 3. Lógica híbrida de responsables
     const detalles_pagos = await Promise.all(Object.values(paymentsByCode).map(async (entry) => {
       const methodDetails = await db.PaymentMethod.findOne({ where: { code: entry.method_code } });
       if (!methodDetails) {
@@ -60,15 +55,9 @@ export const sendCierreToGieApp = async (session, usuarioGieApp) => {
         return null;
       }
 
-      let responsable_metodo = '';
       let comision_porcentaje = 0;
 
-      if (methodDetails.requires_responsable === false || methodDetails.requires_responsable === 0) {
-        // Efectivo u otros métodos marcados como no requieren responsable -> usar usuario GIE de la sesión
-        responsable_metodo = usuarioGieApp;
-        comision_porcentaje = 0;
-      } else {
-        // Para POS/otros: leer configuración estática
+      if (methodDetails.requires_responsable !== false && methodDetails.requires_responsable !== 0) {
         const methodConfig = await db.PaymentMethodConfig.findOne({
           where: { payment_method_id: methodDetails.id }
         });
@@ -76,7 +65,6 @@ export const sendCierreToGieApp = async (session, usuarioGieApp) => {
           console.warn(`GIE-APP: Falta configuración para ${methodDetails.name}. Omitiendo este método.`);
           return null;
         }
-        responsable_metodo = methodConfig.username;
         comision_porcentaje = Number(methodConfig.commission_percentage) || 0;
       }
 
@@ -86,43 +74,64 @@ export const sendCierreToGieApp = async (session, usuarioGieApp) => {
 
       return {
         metodo_pago: methodDetails.name,
-        monto_bruto,
         monto_neto,
-        divisa: methodDetails.currency,
-        responsable_metodo,
-        aplica_comision: comision_porcentaje > 0,
-        comision_porcentaje,
-        comision_monto,
-        numero_lote: String(sessionId),
-        categoria: comision_porcentaje > 0 ? 'Comisiones Bancarias' : undefined
+        divisa: methodDetails.currency
       };
     }));
 
     const detallesFiltrados = detalles_pagos.filter(Boolean);
 
-    if (detallesFiltrados.length === 0) {
-      console.log('GIE-APP: No hay detalles de pago configurados para enviar.');
-      return { success: true, message: 'Cierre local completado. Nada que sincronizar con GIE-APP (sin configuración).' };
+    const [rechargeRows] = await connection.query(
+      `SELECT COALESCE(SUM(net_amount_bs), 0) AS total_net
+       FROM recharges WHERE session_id = ?`,
+      [sessionId]
+    );
+    const totalNetRecharges = Number(rechargeRows[0]?.total_net || 0);
+
+    if (totalNetRecharges > 0) {
+      detallesFiltrados.push({
+        metodo_pago: 'Recargas de Saldo (Prepago)',
+        monto_neto: -Math.abs(totalNetRecharges),
+        divisa: 'VES'
+      });
     }
 
-    const payload = {
+    if (detallesFiltrados.length === 0) {
+      console.log('GIE-APP: No hay pagos ni recargas que sincronizar con sync-cierre.');
+      return { success: true, message: 'Cierre local completado. Nada que sincronizar con GIE-APP.' };
+    }
+
+    payload = {
       cierre_id: String(sessionId),
-      fecha_cierre: (session.openedAt ? new Date(session.openedAt) : new Date()).toISOString().split('T')[0],
       usuario_pos: usuarioGieApp,
       detalles_pagos: detallesFiltrados
     };
 
-    const token = await getMachineToken();
-    if (!token) throw new Error('No se obtuvo token de GIE-APP');
+    console.log('===================================================');
+    console.log('🚀 ENVIANDO APUNTE DE RECARGAS A GIE-APP (sync-cierre) 🚀');
+    console.log(JSON.stringify(payload, null, 2));
+    console.log('===================================================');
 
-    const resp = await axios.post(`${GIE_API_HOST}/api/gie-app/cargar-fondos`, payload, {
+    const token = await getMachineToken();
+    if (!token) {
+      const err = new Error('No se obtuvo token de GIE-APP');
+      err.payload = payload;
+      throw err;
+    }
+
+    const resp = await axios.post(`${GIE_API_HOST}/api/transactions/sync-cierre`, payload, {
       headers: { Authorization: `Bearer ${token}` }
     });
     return resp.data;
   } catch (error) {
+    if (payload && !error.payload) {
+      error.payload = payload;
+    }
     if (error.response && error.response.data) {
       console.error('Error en sendCierreToGieApp (Respuesta GIE):', error.response.data);
-      throw new Error(error.response.data.message || 'Error en GIE-APP');
+      const err = new Error(error.response.data.message || 'Error en GIE-APP');
+      err.payload = error.payload || payload;
+      throw err;
     }
     console.error('Error en sendCierreToGieApp (Error Local):', error.message || error);
     throw error;

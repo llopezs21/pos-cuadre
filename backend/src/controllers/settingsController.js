@@ -31,6 +31,7 @@ export const getSettings = async (req, res) => {
                 iva_rate: Number(settings.iva_rate),
                 iva_threshold: Number(settings.iva_threshold),
                 reconciliation_tolerance: Number(settings.reconciliation_tolerance),
+                recharge_commission_percent: Number(settings.recharge_commission_percent ?? 10),
                 updated_at: settings.updated_at
             }
         });
@@ -50,7 +51,7 @@ export const getSettings = async (req, res) => {
  */
 export const updateSettings = async (req, res) => {
     try {
-        const { iva_rate, iva_threshold, reconciliation_tolerance } = req.body;
+        const { iva_rate, iva_threshold, reconciliation_tolerance, recharge_commission_percent } = req.body;
 
         // Validaciones
         if (iva_rate !== undefined) {
@@ -80,6 +81,15 @@ export const updateSettings = async (req, res) => {
             }
         }
 
+        if (recharge_commission_percent !== undefined) {
+            const commission = Number(recharge_commission_percent);
+            if (!Number.isFinite(commission) || commission < 0 || commission > 100) {
+                return res.status(400).json({
+                    message: 'recharge_commission_percent debe ser un número entre 0 y 100'
+                });
+            }
+        }
+
         // Construir query de actualización dinámicamente
         const updates = [];
         const values = [];
@@ -95,6 +105,10 @@ export const updateSettings = async (req, res) => {
         if (reconciliation_tolerance !== undefined) {
             updates.push('reconciliation_tolerance = ?');
             values.push(Number(reconciliation_tolerance));
+        }
+        if (recharge_commission_percent !== undefined) {
+            updates.push('recharge_commission_percent = ?');
+            values.push(Number(recharge_commission_percent));
         }
 
         if (updates.length === 0) {
@@ -134,6 +148,7 @@ export const updateSettings = async (req, res) => {
                 iva_rate: Number(settings.iva_rate),
                 iva_threshold: Number(settings.iva_threshold),
                 reconciliation_tolerance: Number(settings.reconciliation_tolerance),
+                recharge_commission_percent: Number(settings.recharge_commission_percent ?? 10),
                 updated_at: settings.updated_at
             }
         });

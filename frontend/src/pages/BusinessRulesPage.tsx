@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import {
-  Container,
   Paper,
   Typography,
   Box,
@@ -18,18 +17,12 @@ import {
   Divider,
   Alert,
   CircularProgress,
-  AppBar,
-  Toolbar,
-  IconButton
 } from '@mui/material';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SaveIcon from '@mui/icons-material/Save';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { updatePaymentMethod, updateGlobalSettings } from '../services/api';
 
 export const BusinessRulesPage = () => {
-  const navigate = useNavigate();
-  
   // Store
   const globalSettings = useAppStore(state => state.globalSettings);
   const fetchGlobalSettings = useAppStore(state => state.fetchGlobalSettings);
@@ -70,108 +63,62 @@ export const BusinessRulesPage = () => {
   const handleSaveGlobalSettings = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('No hay sesión activa');
-        return;
-      }
-
-      // Convertir porcentajes a decimales
       const payload = {
         iva_rate: Number(ivaRate) / 100, // 16.00 -> 0.16
         iva_threshold: Number(ivaThreshold) / 100, // 50.00 -> 0.5
         reconciliation_tolerance: Number(tolerance)
       };
 
-      const response = await fetch('http://localhost:4000/api/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Error al actualizar');
-      }
+      await updateGlobalSettings(payload);
 
       toast.success('Configuración global actualizada exitosamente');
-      await fetchGlobalSettings(); // Refrescar desde el backend
+      await fetchGlobalSettings();
     } catch (error: any) {
-      toast.error(error.message || 'Error al guardar la configuración');
+      const message = error.response?.data?.message || error.message || 'Error al guardar la configuración';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
   };
 
   // === SECCIÓN B: Alternar flags de métodos de pago ===
-  const handleToggleMethod = async (methodId: number, field: 'triggers_iva' | 'is_base_currency', currentValue: boolean) => {
+  const handleToggleMethod = async (
+    methodId: number,
+    field: 'triggers_iva' | 'is_base_currency' | 'requires_responsable',
+    currentValue: boolean
+  ) => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('No hay sesión activa');
-        return;
-      }
-
       const payload = {
         [field]: !currentValue
       };
 
-      const response = await fetch(`http://localhost:4000/api/payment-methods/${methodId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error('Error al actualizar método de pago');
-      }
+      await updatePaymentMethod(methodId, payload);
 
       toast.success('Método de pago actualizado');
-      
-      // Actualizar estado local inmediatamente
+
       setMethodsState(prev =>
         prev.map(m =>
           m.id === methodId ? { ...m, [field]: !currentValue } : m
         )
       );
 
-      // Refrescar desde el backend
       await fetchPaymentMethods();
     } catch (error: any) {
-      toast.error(error.message || 'Error al actualizar método');
+      const message = error.response?.data?.message || error.message || 'Error al actualizar método';
+      toast.error(message);
     }
   };
 
   if (!globalSettings) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress />
+      </Box>
     );
   }
 
   return (
-    <>
-      <AppBar position="static" color="default" elevation={1}>
-        <Toolbar>
-          <IconButton edge="start" color="inherit" onClick={() => navigate('/')}>
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
-            Reglas de Negocio
-          </Typography>
-        </Toolbar>
-      </AppBar>
-
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+    <Box sx={{ maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
         <Alert severity="info" sx={{ mb: 3 }}>
           Esta configuración controla el comportamiento matemático del sistema de cuadre.
           Los cambios se aplican inmediatamente a todos los cálculos.
@@ -240,6 +187,8 @@ export const BusinessRulesPage = () => {
             <strong>Triggers IVA:</strong> Si está activo, los pagos con este método disparan la aplicación de IVA cuando se supera el umbral.
             <br />
             <strong>Moneda Base:</strong> Si está activo, este método se considera para calcular si se alcanza el umbral de exoneración.
+            <br />
+            <strong>Req. Responsable (GIE):</strong> Si está activo, el cierre exige un responsable GIE-APP configurado para ese método.
           </Alert>
 
           <TableContainer>
@@ -251,12 +200,13 @@ export const BusinessRulesPage = () => {
                   <TableCell><strong>Moneda</strong></TableCell>
                   <TableCell align="center"><strong>Triggers IVA</strong></TableCell>
                   <TableCell align="center"><strong>Moneda Base</strong></TableCell>
+                  <TableCell align="center"><strong>Req. Responsable (GIE)</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {methodsState.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
+                    <TableCell colSpan={6} align="center">
                       <Typography color="text.secondary">
                         No hay métodos de pago configurados
                       </Typography>
@@ -320,6 +270,24 @@ export const BusinessRulesPage = () => {
                           label=""
                         />
                       </TableCell>
+                      <TableCell align="center">
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={!!method.requires_responsable}
+                              onChange={() =>
+                                handleToggleMethod(
+                                  method.id,
+                                  'requires_responsable',
+                                  !!method.requires_responsable
+                                )
+                              }
+                              color="warning"
+                            />
+                          }
+                          label=""
+                        />
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -327,7 +295,6 @@ export const BusinessRulesPage = () => {
             </Table>
           </TableContainer>
         </Paper>
-      </Container>
-    </>
+    </Box>
   );
 };

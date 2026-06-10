@@ -3,13 +3,15 @@ import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
+import { MainLayout } from './layouts/MainLayout';
 import { AdminSessionsPage } from './pages/AdminSessionsPage';
 import { Toaster } from 'react-hot-toast';
 import { EditTransactionModal } from './components/EditTransactionModal';
 import { AdminSyncPage } from './pages/AdminSyncPage';
 import { AdminConfigPage } from './pages/AdminConfigPage';
-import { AdminUsersPage } from './pages/AdminUsersPage';
+import { UsersPage } from './pages/UsersPage';
 import { BusinessRulesPage } from './pages/BusinessRulesPage';
+import { RechargesPage } from './pages/RechargesPage';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material'; // FASE 1: ThemeProvider global
 
 // FASE 1: Tema Oscuro Global
@@ -48,19 +50,17 @@ function App() {
           {/* Ruta pública */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* 1. Rutas que requieren SÓLO login (Protegidas) */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<DashboardPage />} />
-          </Route>
-
-          {/* 2. Rutas que requieren LOGIN y ROL ADMIN */}
-          <Route element={<ProtectedRoute />}> {/* Valida Login */}
-            <Route element={<AdminRoute />}>   {/* Valida Rol Admin */}
-              <Route path="/admin/sessions" element={<AdminSessionsPage />} />
-              <Route path="/admin/sync" element={<AdminSyncPage />} />
-              <Route path="/admin/config" element={<AdminConfigPage />} />
-              <Route path="/admin/users" element={<AdminUsersPage />} />
-              <Route path="/admin/business-rules" element={<BusinessRulesPage />} />
+            <Route element={<MainLayout />}>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/recharges" element={<RechargesPage />} />
+              <Route element={<AdminRoute />}>
+                <Route path="/admin/sessions" element={<AdminSessionsPage />} />
+                <Route path="/admin/sync" element={<AdminSyncPage />} />
+                <Route path="/admin/config" element={<AdminConfigPage />} />
+                <Route path="/admin/users" element={<UsersPage />} />
+                <Route path="/admin/business-rules" element={<BusinessRulesPage />} />
+              </Route>
             </Route>
           </Route>
         </Routes>

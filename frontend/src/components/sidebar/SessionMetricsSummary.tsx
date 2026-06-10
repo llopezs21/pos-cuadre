@@ -1,36 +1,52 @@
-import { Box, Typography, Paper, Button } from '@mui/material';
+import { Box, Typography, Paper } from '@mui/material';
 import { useAppStore } from '../../store';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import PointOfSaleIcon from '@mui/icons-material/PointOfSale';
 
 interface SessionMetricsSummaryProps {
   summary: any;
-  onCloseSession?: () => void;
+  compact?: boolean;
 }
 
-export const SessionMetricsSummary = ({ summary, onCloseSession }: SessionMetricsSummaryProps) => {
+const EMPTY_TOTALS = {
+  totalCashUSD: 0,
+  totalCashVES: 0,
+  totalPosBanesco: 0,
+  totalPosMiBanco: 0,
+};
+
+const EMPTY_CATEGORIES = {
+  totalMikrowispUSD: 0,
+  totalSupportInstallationUSD: 0,
+};
+
+export const SessionMetricsSummary = ({ summary, compact = false }: SessionMetricsSummaryProps) => {
   const isSessionOpen = useAppStore(state => state.isSessionOpen);
 
-  if (!summary) {
-    return (
-      <Box>
-        <Typography variant="overline" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' }}>
-          Métricas del Día
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }}>
-          Sin datos disponibles
-        </Typography>
-      </Box>
-    );
-  }
+  const { totalsByMethod, totalsByCategory } = summary ?? {
+    totalsByMethod: EMPTY_TOTALS,
+    totalsByCategory: EMPTY_CATEGORIES,
+  };
 
-  const { totalsByMethod, totalsByCategory } = summary;
+  const statusMessage = !isSessionOpen
+    ? 'Sesión no iniciada'
+    : !summary
+      ? 'Sin datos disponibles'
+      : null;
 
   return (
     <Box>
-      <Typography variant="overline" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' }}>
-        Métricas del Día
-      </Typography>
+      {!compact && (
+        <Typography variant="overline" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 'bold' }}>
+          Métricas del Día
+        </Typography>
+      )}
+
+      {statusMessage && (
+        <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.5)', mt: 1 }}>
+          {statusMessage}
+        </Typography>
+      )}
 
       <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {/* Totales por Método */}
@@ -112,19 +128,6 @@ export const SessionMetricsSummary = ({ summary, onCloseSession }: SessionMetric
             Soporte/Instalación: ${totalsByCategory?.totalSupportInstallationUSD?.toFixed(2) || '0.00'}
           </Typography>
         </Box>
-
-        {/* Botón Cerrar Caja */}
-        {isSessionOpen && onCloseSession && (
-          <Button 
-            variant="contained" 
-            color="error" 
-            fullWidth 
-            onClick={onCloseSession}
-            sx={{ mt: 2 }}
-          >
-            Cerrar Caja
-          </Button>
-        )}
       </Box>
     </Box>
   );

@@ -47,15 +47,34 @@ export const createPaymentMethod = async (req, res) => {
   }
 };
 
+const UPDATABLE_PAYMENT_METHOD_FIELDS = [
+  'name',
+  'code',
+  'currency',
+  'is_active',
+  'requires_responsable',
+  'generates_commission',
+  'triggers_iva',
+  'is_base_currency',
+  'is_cash',
+];
+
 export const updatePaymentMethod = async (req, res) => {
   try {
     const { id } = req.params;
-    const payload = req.body;
     const method = await PaymentMethod.findByPk(id);
     if (!method) return res.status(404).json({ message: 'Método de pago no encontrado' });
 
-    // No permitir cambiar id
-    delete payload.id;
+    const payload = {};
+    for (const field of UPDATABLE_PAYMENT_METHOD_FIELDS) {
+      if (req.body[field] !== undefined) {
+        payload[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ message: 'No hay campos válidos para actualizar' });
+    }
 
     await method.update(payload);
     return res.json(method);

@@ -44,6 +44,7 @@ interface GlobalSettings {
   iva_rate: number;
   iva_threshold: number;
   reconciliation_tolerance: number;
+  recharge_commission_percent?: number;
   updated_at: string;
 }
 
@@ -480,6 +481,7 @@ export const useAppStore = create<AppState & AuthState & SessionState & AdminSta
           iva_rate: 0.16,
           iva_threshold: 0.5,
           reconciliation_tolerance: 0.05,
+          recharge_commission_percent: 10,
           updated_at: new Date().toISOString()
         }
       });

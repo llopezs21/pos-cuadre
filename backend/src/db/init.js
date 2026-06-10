@@ -177,6 +177,22 @@ async function addMissingColumns() {
             console.log('  + Columna reference agregada a payments');
         }
 
+        // ===== users: soft-delete =====
+        if (!await columnExists('users', 'is_active')) {
+            await connection.query(
+                `ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE COMMENT 'Usuario activo' AFTER role`
+            );
+            console.log('  + Columna is_active agregada a users');
+        }
+
+        // ===== global_settings: comisión de recargas =====
+        if (!await columnExists('global_settings', 'recharge_commission_percent')) {
+            await connection.query(
+                `ALTER TABLE global_settings ADD COLUMN recharge_commission_percent DECIMAL(5, 2) NOT NULL DEFAULT 10.00 COMMENT 'Comisión % sobre recargas de saldo' AFTER reconciliation_tolerance`
+            );
+            console.log('  + Columna recharge_commission_percent agregada a global_settings');
+        }
+
         console.log('✅ Verificación de columnas completada.');
 
         // ===== CORRECCIÓN CRÍTICA: Cambiar id de VARCHAR a INT AUTO_INCREMENT =====
@@ -581,6 +597,44 @@ async function initializeTables() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
         console.log('  ✓ Tabla payment_commissions creada/verificada.');
+
+        // ===== TABLA: staff_phones - Teléfonos del personal para recargas =====
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS staff_phones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                phone_number VARCHAR(20) NOT NULL UNIQUE,
+                owner_name VARCHAR(128) NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_phone_number (phone_number),
+                INDEX idx_is_active (is_active)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+        console.log('  ✓ Tabla staff_phones creada/verificada.');
+
+        // ===== TABLA: recharges - Recargas de saldo prepagado =====
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS recharges (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                session_id INT NOT NULL,
+                phone_number VARCHAR(20) NOT NULL,
+                is_staff BOOLEAN DEFAULT FALSE,
+                net_amount_bs DECIMAL(15, 2) NOT NULL,
+                commission_amount_bs DECIMAL(15, 2) NOT NULL DEFAULT 0,
+                total_charged DECIMAL(15, 2) NOT NULL DEFAULT 0,
+                payment_method VARCHAR(64) DEFAULT NULL,
+                currency ENUM('USD', 'VES') DEFAULT NULL,
+                amount_tendered DECIMAL(15, 2) DEFAULT NULL,
+                exchange_rate DECIMAL(10, 4) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_session_id (session_id),
+                INDEX idx_phone_number (phone_number),
+                INDEX idx_is_staff (is_staff),
+                FOREIGN KEY (session_id) REFERENCES cashier_sessions(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        `);
+        console.log('  ✓ Tabla recharges creada/verificada.');
 
         console.log('✅ Todas las tablas han sido creadas/verificadas exitosamente.');
         
